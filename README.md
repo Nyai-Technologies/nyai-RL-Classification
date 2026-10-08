@@ -7,7 +7,7 @@ Parsing, chunking, storage and UI are not part of this service: it is stateless.
 
 ## Setup
     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-    cp .env.example .env        # set OPENAI_API_KEY and LLM_MODEL; everything else has a default
+    cp .env.example .env        # set OPENAI_API_KEY and OPENAI_MODEL; everything else has a default
 
 ## Run
     .venv/bin/python -m uvicorn app.main:app --port 8000
@@ -50,17 +50,17 @@ and the call returns when all its files are done.
       errors.py       the errors the service raises on purpose
       cli.py          command line for testing: python -m app.cli --input request.json
       pulsar_worker.py  Pulsar consumer: python -m app.pulsar_worker
-    .env.example      every setting, with comments
+    .env.example      the two required settings (and the Pulsar topics)
     Dockerfile        container image
     logs/             created at runtime: classify.log and cost.log (git-ignored)
 
 ## Configuration
-All settings are environment variables, documented in `.env.example`: model and API key, MIN_CONFIDENCE, chunk counts,
-WORKERS, price and exchange-rate auto-fetch, Pulsar, logging.
+All settings are environment variables with defaults; only `OPENAI_API_KEY` and `OPENAI_MODEL` are required (the Pulsar topics too,
+if you run the worker). Every setting, with its default and a comment, is listed in `app/config.py`.
 
 ## Pulsar
-The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_worker` (needs `PULSAR_SERVICE_URL`, the topics and
-`OPENAI_API_KEY`; all `PULSAR_*` settings are in `.env.example`).
+The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_worker` (needs `PULSAR_SERVICE_URL`, `PULSAR_INPUT_TOPIC`,
+`PULSAR_RESULT_TOPIC`, `PULSAR_SUBSCRIPTION` and `OPENAI_API_KEY`; no topic names are assumed, the worker stops with a clear message if one is missing).
 
 - **In** (`PULSAR_INPUT_TOPIC`): one JSON message = the API request body + an optional `correlation_id`:
   `{"correlation_id": "abc-1", "rl": [{name, description, count?}], "files": [{"file_id", "text" | "chunks"}]}`.

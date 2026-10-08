@@ -36,9 +36,8 @@ def _float_or_none(name):
 
 @dataclass
 class Settings:
-    # ---- LLM (OpenAI-compatible). LLM_BASE_URL is optional; leave unset for api.openai.com ----
+    # ---- LLM (OpenAI) ----
     LLM_API_KEY: str = ""
-    LLM_BASE_URL: str | None = None
     LLM_MODEL: str = "luna"
     LLM_TEMPERATURE: float | None = 0.0          # None = do not send (model default); auto-dropped if the model rejects it
     LLM_TIMEOUT: float = 60.0                    # seconds per LLM call
@@ -75,9 +74,9 @@ class Settings:
     # ---- Pulsar (python -m app.pulsar_worker) ----
     PULSAR_SERVICE_URL: str = "pulsar://localhost:6650"   # pulsar+ssl://... for TLS
     PULSAR_AUTH_TOKEN: str = ""                           # JWT, if the cluster needs one
-    PULSAR_INPUT_TOPIC: str = "persistent://public/default/rl-classification-requests"
-    PULSAR_RESULT_TOPIC: str = "persistent://public/default/rl-classification-results"
-    PULSAR_SUBSCRIPTION: str = "rl-classification"
+    PULSAR_INPUT_TOPIC: str = ""                          # required for the worker: your topic names, nothing is assumed
+    PULSAR_RESULT_TOPIC: str = ""                         # required for the worker
+    PULSAR_SUBSCRIPTION: str = ""                         # required for the worker
     PULSAR_MAX_IN_FLIGHT: int = 4                         # messages classified at the same time per worker
 
     # ---- logging (containers/OpenShift: LOG_FORMAT=json LOG_FILE=none COST_LOG_FILE=none) ----
@@ -94,7 +93,6 @@ class Settings:
         fmt = _str("LOG_FORMAT", "text").strip().lower()
         return cls(
             LLM_API_KEY=_str("LLM_API_KEY") or _str("OPENAI_API_KEY"),
-            LLM_BASE_URL=_str("LLM_BASE_URL") or None,
             LLM_MODEL=_str("LLM_MODEL") or _str("OPENAI_MODEL") or "luna",
             LLM_TEMPERATURE=None if temp in ("", "none", "default") else float(temp),
             LLM_TIMEOUT=_float("LLM_TIMEOUT", 60),
@@ -119,9 +117,9 @@ class Settings:
             MAX_LLM_CONCURRENCY=_int("MAX_LLM_CONCURRENCY", 16),
             PULSAR_SERVICE_URL=_str("PULSAR_SERVICE_URL", cls.PULSAR_SERVICE_URL),
             PULSAR_AUTH_TOKEN=_str("PULSAR_AUTH_TOKEN"),
-            PULSAR_INPUT_TOPIC=_str("PULSAR_INPUT_TOPIC", cls.PULSAR_INPUT_TOPIC),
-            PULSAR_RESULT_TOPIC=_str("PULSAR_RESULT_TOPIC", cls.PULSAR_RESULT_TOPIC),
-            PULSAR_SUBSCRIPTION=_str("PULSAR_SUBSCRIPTION", cls.PULSAR_SUBSCRIPTION),
+            PULSAR_INPUT_TOPIC=_str("PULSAR_INPUT_TOPIC").strip(),
+            PULSAR_RESULT_TOPIC=_str("PULSAR_RESULT_TOPIC").strip(),
+            PULSAR_SUBSCRIPTION=_str("PULSAR_SUBSCRIPTION").strip(),
             PULSAR_MAX_IN_FLIGHT=_int("PULSAR_MAX_IN_FLIGHT", 4),
             LOG_LEVEL=_str("LOG_LEVEL", "INFO").upper(),
             LOG_FORMAT=fmt,
