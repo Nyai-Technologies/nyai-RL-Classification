@@ -70,29 +70,15 @@ class Settings:
     # ---- concurrency ----
     WORKERS: int = 4                             # files of ONE request classified at the same time
     MAX_LLM_CONCURRENCY: int = 16                # LLM calls in flight across ALL requests of this process
-    MAX_CONCURRENT_RUNS: int = 2                 # simultaneous requests; more get 429
-    FILE_TIMEOUT_SECONDS: float = 180.0          # one stuck file cannot hold a slot longer
 
-    # ---- guardrails ----
-    MAX_FILES: int = 300                         # files per request
-    MAX_RL_TYPES: int = 50
-    MAX_NAME_CHARS: int = 60
-    MAX_DESC_CHARS: int = 2000
-    MAX_INPUT_CHARS: int = 200000                # text kept per file; only the first chunks are ever used
-    MAX_RUN_COST_USD: float = 0.0                # stop a run once it has spent this much; 0 = off
-    INJECTION_GUARD: bool = True
 
     # ---- Pulsar (python -m app.pulsar_worker) ----
     PULSAR_SERVICE_URL: str = "pulsar://localhost:6650"   # pulsar+ssl://... for TLS
     PULSAR_AUTH_TOKEN: str = ""                           # JWT, if the cluster needs one
-    PULSAR_TLS_TRUST_CERTS: str = ""                      # path to the CA file for pulsar+ssl
     PULSAR_INPUT_TOPIC: str = "persistent://public/default/rl-classification-requests"
     PULSAR_RESULT_TOPIC: str = "persistent://public/default/rl-classification-results"
-    PULSAR_DLQ_TOPIC: str = "persistent://public/default/rl-classification-dead-letter"
     PULSAR_SUBSCRIPTION: str = "rl-classification"
     PULSAR_MAX_IN_FLIGHT: int = 4                         # messages classified at the same time per worker
-    PULSAR_MAX_REDELIVER: int = 3                         # retries of a failed message before it goes to the dead-letter topic
-    PULSAR_NACK_DELAY_SECONDS: float = 30.0               # wait before a failed message is delivered again
 
     # ---- logging (containers/OpenShift: LOG_FORMAT=json LOG_FILE=none COST_LOG_FILE=none) ----
     LOG_LEVEL: str = "INFO"
@@ -131,25 +117,12 @@ class Settings:
             CHUNK_CHARS=_int("CHUNK_CHARS", 1200),
             WORKERS=_int("WORKERS", 4),
             MAX_LLM_CONCURRENCY=_int("MAX_LLM_CONCURRENCY", 16),
-            MAX_CONCURRENT_RUNS=_int("MAX_CONCURRENT_RUNS", 2),
-            FILE_TIMEOUT_SECONDS=_float("FILE_TIMEOUT_SECONDS", 180),
-            MAX_FILES=_int("MAX_FILES", 300),
-            MAX_RL_TYPES=_int("MAX_RL_TYPES", 50),
-            MAX_NAME_CHARS=_int("MAX_NAME_CHARS", 60),
-            MAX_DESC_CHARS=_int("MAX_DESC_CHARS", 2000),
-            MAX_INPUT_CHARS=_int("MAX_INPUT_CHARS", 200000),
-            MAX_RUN_COST_USD=_float("MAX_RUN_COST_USD", 0),
-            INJECTION_GUARD=_flag("INJECTION_GUARD", True),
             PULSAR_SERVICE_URL=_str("PULSAR_SERVICE_URL", cls.PULSAR_SERVICE_URL),
             PULSAR_AUTH_TOKEN=_str("PULSAR_AUTH_TOKEN"),
-            PULSAR_TLS_TRUST_CERTS=_str("PULSAR_TLS_TRUST_CERTS"),
             PULSAR_INPUT_TOPIC=_str("PULSAR_INPUT_TOPIC", cls.PULSAR_INPUT_TOPIC),
             PULSAR_RESULT_TOPIC=_str("PULSAR_RESULT_TOPIC", cls.PULSAR_RESULT_TOPIC),
-            PULSAR_DLQ_TOPIC=_str("PULSAR_DLQ_TOPIC", cls.PULSAR_DLQ_TOPIC),
             PULSAR_SUBSCRIPTION=_str("PULSAR_SUBSCRIPTION", cls.PULSAR_SUBSCRIPTION),
             PULSAR_MAX_IN_FLIGHT=_int("PULSAR_MAX_IN_FLIGHT", 4),
-            PULSAR_MAX_REDELIVER=_int("PULSAR_MAX_REDELIVER", 3),
-            PULSAR_NACK_DELAY_SECONDS=_float("PULSAR_NACK_DELAY_SECONDS", 30),
             LOG_LEVEL=_str("LOG_LEVEL", "INFO").upper(),
             LOG_FORMAT=fmt,
             LOG_FILE=_path_or_none("LOG_FILE", "logs/classify.log"),

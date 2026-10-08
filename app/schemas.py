@@ -12,10 +12,10 @@ class RLItem(BaseModel):
 
 class FileText(BaseModel):
     """Send `chunks` (your own chunking, in reading order) or plain `text` (we split it)."""
-    file_id: str = Field(min_length=1, max_length=255)
+    file_id: str = Field(min_length=1)
     text: Optional[str] = None
     chunks: Optional[list[str]] = None
-    file_name: Optional[str] = Field(None, max_length=255)
+    file_name: Optional[str] = None
 
 
 class ClassificationRequest(BaseModel):
@@ -51,7 +51,6 @@ class FileResult(BaseModel):
     tokens_out: int = 0
     cost_usd: Optional[float] = None
     cost_inr: Optional[float] = None
-    flags: Optional[str] = Field(None, description="prompt_injection_suspected when the text tried to instruct the model")
 
 
 class CountCheck(BaseModel):
@@ -70,7 +69,7 @@ class UsageSummary(BaseModel):
     cost_usd: Optional[float] = None
     cost_inr: Optional[float] = None
     usd_inr_rate: Optional[float] = None
-    aborted: Optional[str] = Field(None, description="why the run stopped early (cost cap...), if it did")
+    aborted: Optional[str] = Field(None, description="why the run stopped early, if it did")
 
 
 class ClassificationResponse(BaseModel):

@@ -1,4 +1,0 @@
--r ../requirements.txt
-pytest
-pypdf        # testing/tools/pdf_to_request.py (stands in for the parser service)
-reportlab    # testing/test_sets/*/generate_*.py

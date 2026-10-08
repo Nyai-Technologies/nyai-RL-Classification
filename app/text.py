@@ -51,7 +51,7 @@ class TextSource:
         if chunks:                       # caller already chunked the file: use its chunks, in order
             self.pieces = [c for c in (clean_text(x) for x in chunks[:settings.RETRY_CHUNKS]) if c]
         else:
-            t = clean_text((text or "")[:settings.MAX_INPUT_CHARS])      # only the first chunks are ever used
+            t = clean_text(text or "")
             self.pieces = [t[i:i + chunk_chars].strip() for i in range(0, len(t), chunk_chars)]
             self.pieces = [p for p in self.pieces if p]
 

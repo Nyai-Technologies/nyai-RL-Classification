@@ -2,7 +2,6 @@
 import hashlib
 import json
 
-from app.config import settings
 from app.logs import log
 
 OTHER = "OTHER"                                              # "none of the RL types fits"
@@ -13,18 +12,12 @@ def validate_rl(rl):
     """Returns [{name, description}] or raises ValueError with a message the caller can show."""
     if not isinstance(rl, list) or len(rl) < 2:
         raise ValueError("RL must be a list of at least 2 {name, description} items")
-    if len(rl) > settings.MAX_RL_TYPES:
-        raise ValueError(f"RL has {len(rl)} types; the limit is {settings.MAX_RL_TYPES}")
     out, seen = [], set()
     for i, item in enumerate(rl):
         name = str(item.get("name", "")).strip()
         desc = str(item.get("description", "")).strip()
         if not name:
             raise ValueError(f"RL item {i} has no name")
-        if len(name) > settings.MAX_NAME_CHARS:
-            raise ValueError(f"RL name '{name[:20]}...' is longer than {settings.MAX_NAME_CHARS} characters")
-        if len(desc) > settings.MAX_DESC_CHARS:
-            raise ValueError(f"RL '{name}' description is longer than {settings.MAX_DESC_CHARS} characters")
         if name.upper() == OTHER or ":" in name:
             raise ValueError(f"invalid RL name '{name}' ('OTHER' is reserved, ':' not allowed)")
         if name.lower() in seen:

@@ -8,12 +8,12 @@ from app import llm
 from app.config import settings
 from app.errors import LLMError, RunAborted
 from app.logs import cost_log, file_id_var, log, rl_id_var
-from app.pricing import Usage, cost_fields, usd_inr, warm_caches  # noqa: F401  (usd_inr: handy for callers)
+from app.pricing import Usage, cost_fields, warm_caches
 from app.rl import OTHER, summarize_rows
-from app.rules import decide, detect_injection
+from app.rules import decide
 
 PRED_COLS = ["file_id", "file_name", "doc_type", "status", "confidence", "reason",
-             "attempt", "chunks_used", "tokens_in", "tokens_out", "cost_usd", "cost_inr", "flags"]
+             "attempt", "chunks_used", "tokens_in", "tokens_out", "cost_usd", "cost_inr"]
 
 
 def with_cost(row, tokens_in, tokens_out):
@@ -41,10 +41,6 @@ async def aclassify_file(src, clf, file_id):
         log.warning("[%s] %s: %s -> status=error, LLM not called", file_id, name, why)
         return with_cost({**row, "doc_type": "", "status": "error", "confidence": "", "reason": why,
                           "attempt": 1, "chunks_used": 0}, 0, 0)
-    flag = detect_injection("\n".join(chunks), [c["name"] for c in clf.rl]) if settings.INJECTION_GUARD else None
-    if flag:
-        log.warning("[%s] %s: possible prompt injection (%s); it will not be auto-classified", file_id, name, flag)
-
     try:
         res = await clf.aclassify(name, chunks)
     except LLMError as e:
@@ -56,10 +52,8 @@ async def aclassify_file(src, clf, file_id):
     status = decide(res["doc_type"], res["confidence"])
     log.info("[%s] attempt 1: doc_type=%s conf=%.2f -> %s", file_id, res["doc_type"], res["confidence"], status)
 
-    if flag and status == "classified":
-        status = "low_confidence"
     # unclear -> retry with more chunks; OTHER too, because the title may sit beyond the first chunks
-    if (status != "classified" or res["doc_type"] == OTHER) and not flag:
+    if status != "classified" or res["doc_type"] == OTHER:
         _, more = src.chunks(file_id, settings.RETRY_CHUNKS)
         if len(more) > len(chunks):
             log.info("[%s] unclear (%s), retrying with %d chunks", file_id, status, len(more))
@@ -79,9 +73,6 @@ async def aclassify_file(src, clf, file_id):
     log.info("[%s] FINAL %s: doc_type=%s status=%s conf=%.2f reason=%s", file_id, name, res["doc_type"], status,
              res["confidence"], res["reason"])
     res = {k: v for k, v in res.items() if k not in ("tokens_in", "tokens_out")}
-    if flag:
-        res["reason"] = f"Possible prompt injection in the document text ({flag}); needs a human check. " + res["reason"]
-        row["flags"] = "prompt_injection_suspected"
     return with_cost({**row, **res, "status": status, "attempt": attempt, "chunks_used": used}, tin, tout)
 
 
@@ -121,17 +112,10 @@ async def arun(rl, src, rl_id, out_csv=None, workers=None, progress=None, client
             if abort["reason"]:
                 return error_row(fid, f"skipped: run stopped ({abort['reason']})", attempt=0)
             try:
-                row = await asyncio.wait_for(aclassify_file(src, clf, fid), settings.FILE_TIMEOUT_SECONDS)
+                row = await aclassify_file(src, clf, fid)
                 if clf.fatal and not abort["reason"]:
-                    abort["reason"] = clf.fatal
-                elif settings.MAX_RUN_COST_USD and not abort["reason"] and \
-                        Usage.cost_usd(usage.prompt_tokens, usage.completion_tokens) >= settings.MAX_RUN_COST_USD:
-                    abort["reason"] = f"cost limit ${settings.MAX_RUN_COST_USD:g} reached"
-                    log.error("run stopped: %s", abort["reason"])
+                    abort["reason"] = clf.fatal             # bad key / unknown model: the other files would fail the same way
                 return row
-            except asyncio.TimeoutError:
-                log.error("[%s] timed out after %.0fs", fid, settings.FILE_TIMEOUT_SECONDS)
-                return error_row(fid, f"timed out after {settings.FILE_TIMEOUT_SECONDS:g}s")
             except Exception as e:
                 log.exception("[%s] unexpected failure", fid)
                 return error_row(fid, str(e)[:200])
