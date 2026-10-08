@@ -26,8 +26,7 @@ def shared_client():
     if loop not in _clients:
         if not settings.LLM_API_KEY:
             raise RuntimeError("set OPENAI_API_KEY (or LLM_API_KEY)")
-        _clients[loop] = AsyncOpenAI(api_key=settings.LLM_API_KEY, base_url=settings.LLM_BASE_URL, max_retries=0,
-                                     timeout=settings.LLM_TIMEOUT)
+        _clients[loop] = AsyncOpenAI(api_key=settings.LLM_API_KEY, max_retries=0, timeout=settings.LLM_TIMEOUT)
     return _clients[loop]
 
 
@@ -97,8 +96,7 @@ class LLMClassifier:
         self._json_mode = settings.LLM_JSON_MODE
         self._send_temp = settings.LLM_TEMPERATURE is not None
         self.fatal = None                # set when a config problem (bad key / unknown model) stops the run
-        log.info("LLM client ready: model=%s base_url=%s categories=%d", settings.LLM_MODEL,
-                 settings.LLM_BASE_URL or "default", len(rl))
+        log.info("LLM client ready: model=%s categories=%d", settings.LLM_MODEL, len(rl))
 
     async def _call(self, user_prompt, file_name="?"):
         """One chat call (non-blocking) with backoff on 429 / transient errors."""

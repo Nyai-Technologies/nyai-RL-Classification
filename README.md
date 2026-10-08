@@ -7,7 +7,7 @@ Parsing, chunking, storage and UI are not part of this service: it is stateless.
 
 ## Setup
     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-    cp .env.example .env        # set OPENAI_API_KEY and LLM_MODEL; everything else has a default
+    cp .env.example .env        # set OPENAI_API_KEY and OPENAI_MODEL; everything else has a default
 
 ## Run
     .venv/bin/python -m uvicorn app.main:app --port 8000
@@ -50,17 +50,17 @@ and the call returns when all its files are done.
       errors.py       the errors the service raises on purpose
       cli.py          command line for testing: python -m app.cli --input request.json
       pulsar_worker.py  Pulsar consumer: python -m app.pulsar_worker
-    .env.example      every setting, with comments
+    .env.example      the two required settings (and the Pulsar topics)
     Dockerfile        container image
     logs/             created at runtime: classify.log and cost.log (git-ignored)
 
 ## Configuration
-All settings are environment variables, documented in `.env.example`: model and API key, MIN_CONFIDENCE, chunk counts,
-WORKERS, price and exchange-rate auto-fetch, Pulsar, logging.
+All settings are environment variables with defaults; only `OPENAI_API_KEY` and `OPENAI_MODEL` are required (the Pulsar topics too,
+if you run the worker). Every setting, with its default and a comment, is listed in `app/config.py`.
 
 ## Pulsar
-The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_worker` (needs `PULSAR_SERVICE_URL`, the topics and
-`OPENAI_API_KEY`; all `PULSAR_*` settings are in `.env.example`).
+The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_worker` (needs `PULSAR_SERVICE_URL`, `PULSAR_INPUT_TOPIC`,
+`PULSAR_RESULT_TOPIC`, `PULSAR_SUBSCRIPTION` and `OPENAI_API_KEY`; no topic names are assumed, the worker stops with a clear message if one is missing).
 
 - **In** (`PULSAR_INPUT_TOPIC`): one JSON message = the API request body + an optional `correlation_id`:
   `{"correlation_id": "abc-1", "rl": [{name, description, count?}], "files": [{"file_id", "text" | "chunks"}]}`.
@@ -76,6 +76,10 @@ The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_w
   worked on at once; the LLM concurrency (`MAX_LLM_CONCURRENCY`, `WORKERS`) applies as in the API. SIGTERM finishes the messages in flight.
 - **Try it:** start a broker (`docker run -p 6650:6650 -p 8080:8080 apachepulsar/pulsar:latest bin/pulsar standalone`), start the worker,
   then send a request message (same JSON as the API body) to the input topic.
+- **Logs:** every step is logged (connect, subscribe, message received with its size and redelivery count, parsed, classified,
+  answer published with its size and time, acknowledged or negatively acknowledged with the outcome and duration, signals, shutdown).
+  Every line of a message carries its `correlation_id` (as `request_id`). While idle the worker logs its counters every
+  `PULSAR_STATS_INTERVAL_SECONDS` (60; 0 = never), because it has no HTTP probe. The document text and the token are never logged.
 - The worker was tested with a fake consumer/producer and with the real LLM, but not against a live broker.
 
 ## Scaling
