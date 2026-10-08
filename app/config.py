@@ -78,6 +78,7 @@ class Settings:
     PULSAR_RESULT_TOPIC: str = ""                         # required for the worker
     PULSAR_SUBSCRIPTION: str = ""                         # required for the worker
     PULSAR_MAX_IN_FLIGHT: int = 4                         # messages classified at the same time per worker
+    PULSAR_STATS_INTERVAL_SECONDS: float = 60.0           # how often the worker logs its counters while idle (0 = never)
 
     # ---- logging (containers/OpenShift: LOG_FORMAT=json LOG_FILE=none COST_LOG_FILE=none) ----
     LOG_LEVEL: str = "INFO"
@@ -121,6 +122,7 @@ class Settings:
             PULSAR_RESULT_TOPIC=_str("PULSAR_RESULT_TOPIC").strip(),
             PULSAR_SUBSCRIPTION=_str("PULSAR_SUBSCRIPTION").strip(),
             PULSAR_MAX_IN_FLIGHT=_int("PULSAR_MAX_IN_FLIGHT", 4),
+            PULSAR_STATS_INTERVAL_SECONDS=_float("PULSAR_STATS_INTERVAL_SECONDS", 60),
             LOG_LEVEL=_str("LOG_LEVEL", "INFO").upper(),
             LOG_FORMAT=fmt,
             LOG_FILE=_path_or_none("LOG_FILE", "logs/classify.log"),

@@ -76,6 +76,10 @@ The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_w
   worked on at once; the LLM concurrency (`MAX_LLM_CONCURRENCY`, `WORKERS`) applies as in the API. SIGTERM finishes the messages in flight.
 - **Try it:** start a broker (`docker run -p 6650:6650 -p 8080:8080 apachepulsar/pulsar:latest bin/pulsar standalone`), start the worker,
   then send a request message (same JSON as the API body) to the input topic.
+- **Logs:** every step is logged (connect, subscribe, message received with its size and redelivery count, parsed, classified,
+  answer published with its size and time, acknowledged or negatively acknowledged with the outcome and duration, signals, shutdown).
+  Every line of a message carries its `correlation_id` (as `request_id`). While idle the worker logs its counters every
+  `PULSAR_STATS_INTERVAL_SECONDS` (60; 0 = never), because it has no HTTP probe. The document text and the token are never logged.
 - The worker was tested with a fake consumer/producer and with the real LLM, but not against a live broker.
 
 ## Scaling
