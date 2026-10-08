@@ -1,0 +1,51 @@
+file_name,expected_label,case_type,filename_hint,notes
+MSA_Sahyadri_Kaveri_2025.pdf,MSA,standard,abbrev,
+MSA-signed-final.pdf,MSA,standard,abbrev,
+Master_Services_Agreement_v3.pdf,MSA,standard,full_name,"Name spelled out, no 'MSA' token"
+Agreement_executed_copy.pdf,MSA,neutral_name,none,Generic 'agreement' name - could be MSA/NDA/EC
+doc_0017.pdf,MSA,neutral_name,none,
+SOW-001-03.pdf,SOW,standard,abbrev,Same naming pattern as your ES sample
+SOW_DataPlatform_Phase2.pdf,SOW,standard,abbrev,
+Statement_of_Work_ERP.pdf,SOW,standard,full_name,
+Project_Scope_Document.pdf,SOW,neutral_name,none,
+Document (3).pdf,SOW,neutral_name,none,
+MoM_Steering_Committee_Aug.pdf,MoM,standard,abbrev,
+MOM-weekly-sync-14.pdf,MoM,standard,abbrev,Uppercase MOM - tests case-insensitive match
+Minutes_QBR_Q2.pdf,MoM,standard,full_name,
+meeting_notes_final.pdf,MoM,neutral_name,none,
+doc_0042.pdf,MoM,neutral_name,none,
+AoA_Kaveri_Analytics.pdf,AoA,standard,abbrev,
+AOA-Narmada-Fintech.pdf,AoA,standard,abbrev,
+Articles_of_Association_Deccan.pdf,AoA,standard,full_name,
+Company_Constitution_Part2.pdf,AoA,neutral_name,none,
+scan_20260211.pdf,AoA,neutral_name,none,Digital text despite 'scan' in name
+MoA_Indus_Legal.pdf,MoA,standard,abbrev,
+MOA_Godavari_Logistics.pdf,MoA,standard,abbrev,
+Memorandum_of_Association_Vindhya.pdf,MoA,standard,full_name,
+Company_Constitution_Part1.pdf,MoA,neutral_name,none,Pairs with Part2 (AoA) - near-identical name
+doc_0063.pdf,MoA,neutral_name,none,
+BS_FY26_Sahyadri.pdf,BS,standard,abbrev,
+BS-Audited-2025.pdf,BS,standard,abbrev,
+BalanceSheet_FY2026.pdf,BS,standard,full_name,'BalanceSheet' is one token - won't match 'BS'
+Financials_Annexure.pdf,BS,neutral_name,none,
+doc_0081.pdf,BS,neutral_name,none,
+EC_Rohan_Kulkarni.pdf,EC,standard,abbrev,
+EC-2026-0412.pdf,EC,standard,abbrev,
+Employment_Agreement_Neha_Joshi.pdf,EC,standard,full_name,Uses 'Agreement' not 'Contract'
+Offer_and_Terms_signed.pdf,EC,neutral_name,none,
+doc_0099.pdf,EC,neutral_name,none,
+NDA_Konkan_Aravalli.pdf,NDA,standard,abbrev,
+Mutual-NDA-2025.pdf,NDA,standard,abbrev,
+Non_Disclosure_Agreement_Brahmaputra.pdf,NDA,standard,full_name,
+Confidentiality_Agreement_draft.pdf,NDA,neutral_name,none,Could be confused with MSA confidentiality clause
+doc_0105.pdf,NDA,neutral_name,none,
+SOW_final_v2.pdf,MSA,misnamed,misleading,"MSA content, filename says SOW - content must win"
+MSA_Annexure_B.pdf,SOW,misnamed,misleading,"SOW content, filename says MSA - content must win"
+MSA_Nilgiri_Tapti_Legal_Review.pdf,MSA,cover_page,abbrev,"Page 1 = cover, page 2 = TOC; real text starts page 3"
+Incorporation_Certified_Copy.pdf,AoA,cover_page,none,Cover page first; no filename hint
+Incorporation_Docs_Chambal_Agritech.pdf,MoA,combined,none,"MoA + AoA in one PDF; primary=MoA (first). Accept MoA, flag if multi-label"
+Tax_Invoice_INV_2026_311.pdf,OTHER,out_of_rl,none,Not in RL - should be OTHER / no_match
+PO_Laptops_Q3.pdf,OTHER,out_of_rl,misleading,'PO' not in RL; content mentions payment/vendor like MSA/SOW
+HR_Leave_Policy_2026.pdf,OTHER,out_of_rl,none,HR doc - may get pulled toward EC
+MoM_scanned_board_meeting.pdf,MoM,scanned,abbrev,"Image-only PDF, no text layer. Needs OCR; else status=error"
+scanned_doc_0007.pdf,BS,scanned,none,"Image-only PDF, no text layer, no filename hint. Needs OCR; else status=error"

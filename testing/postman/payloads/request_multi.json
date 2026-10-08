@@ -1,0 +1,55 @@
+{
+  "rl": [
+    {
+      "name": "MSA",
+      "description": "Master Services Agreement. Umbrella contract between a client and a supplier governing all future engagements: term and renewal, invoicing and payment, confidentiality, IP ownership, liability, governing law and arbitration.",
+      "count": 1
+    },
+    {
+      "name": "SOW",
+      "description": "Statement of Work. Project-specific document issued under a parent MSA: scope, deliverables and milestones with dates, team, fees and payment schedule, acceptance criteria.",
+      "count": 1
+    },
+    {
+      "name": "NDA",
+      "description": "Non-Disclosure Agreement. Standalone confidentiality agreement between parties evaluating a possible relationship: definition of confidential information, obligations of the receiving party, exclusions, term.",
+      "count": 1
+    },
+    {
+      "name": "MoM",
+      "description": "Minutes of Meeting. Record of one meeting: title, date, attendees, agenda, discussion, decisions taken and action items with owners and due dates.",
+      "count": 2
+    }
+  ],
+  "files": [
+    {
+      "file_id": "f-001",
+      "file_name": "agreement_2025.pdf",
+      "text": "MASTER SERVICES AGREEMENT. This Master Services Agreement is entered into on 14 March 2025 between Orchid Retail Private Limited (Client) and Vertex Analytics LLP (Supplier). 1. Term and renewal: three years. 2. Fees and invoicing: monthly, payable within 45 days. 3. Confidentiality. 4. Limitation of liability. 5. Governing law and arbitration: Mumbai."
+    },
+    {
+      "file_id": "f-002",
+      "file_name": "project_scope.pdf",
+      "chunks": [
+        "STATEMENT OF WORK No. 4 issued under the Master Services Agreement dated 14 March 2025.",
+        "1. Project overview: build a demand-forecasting pipeline. 2. Deliverables and milestones: M1 data pipeline 30 Nov 2025, M2 model 31 Jan 2026.",
+        "3. Fees: fixed price EUR 412,000, payable per milestone. 4. Acceptance criteria: forecast error below 12%."
+      ]
+    },
+    {
+      "file_id": "f-003",
+      "file_name": "notes_oct5.pdf",
+      "text": "MINUTES OF MEETING. Programme Steering Committee, 5 October 2026, 3.00 pm. Attendees: Ravi Menon, Tanya Bhargava, Amit Shah. Agenda: go-live status. Decisions taken: go-live approved for 20 October. Action items: Amit to share the test report by 12 Oct."
+    },
+    {
+      "file_id": "f-004",
+      "file_name": "inv_8812.pdf",
+      "text": "TAX INVOICE No. INV-8812, 3 September 2026. Bill to: Orchid Retail Private Limited. Consulting services for September: INR 2,40,000. GST 18%: INR 43,200. Total: INR 2,83,200."
+    },
+    {
+      "file_id": "f-005",
+      "file_name": "scan_0007.pdf",
+      "text": ""
+    }
+  ]
+}
