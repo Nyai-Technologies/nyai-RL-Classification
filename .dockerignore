@@ -1,0 +1,11 @@
+.venv/
+.git/
+.env
+testing/
+logs/
+__pycache__/
+*.pyc
+*.log
+predictions*.csv
+.gitignore
+Dockerfile
