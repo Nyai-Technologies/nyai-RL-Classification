@@ -1,0 +1,32 @@
+[
+  {
+    "name": "MSA",
+    "description": "Master Services Agreement. Umbrella contract between a client and a supplier governing all future engagements: term and renewal, invoicing and payment, confidentiality, IP ownership, warranties, indemnification, limitation of liability, governing law and arbitration. Individual projects are issued later as SOWs.",
+    "count": 4
+  },
+  {
+    "name": "SOW",
+    "description": "Statement of Work. Project-specific document issued under a parent MSA: project overview, scope, deliverables and milestones with dates, team and FTE, fees and payment schedule, acceptance criteria.",
+    "count": 6
+  },
+  {
+    "name": "NDA",
+    "description": "Non-Disclosure Agreement. Standalone confidentiality agreement between parties evaluating a possible relationship: definition of confidential information, obligations of the receiving party, exclusions, term.",
+    "count": 6
+  },
+  {
+    "name": "EC",
+    "description": "Employment Contract. Agreement between an employer and one individual employee: job title, joining date, probation, salary and benefits, working hours, leave, notice period, termination.",
+    "count": 2
+  },
+  {
+    "name": "MoM",
+    "description": "Minutes of Meeting. Record of one meeting: title, date, attendees, agenda, discussion, decisions taken and action items with owners and due dates.",
+    "count": 4
+  },
+  {
+    "name": "PO",
+    "description": "Purchase Order. Buyer's order to a vendor listing items or services with quantities, unit prices, total, delivery and payment terms.",
+    "count": 2
+  }
+]

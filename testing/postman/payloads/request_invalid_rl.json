@@ -1,0 +1,14 @@
+{
+  "rl": [
+    {
+      "name": "MSA",
+      "description": "Master Services Agreement umbrella contract"
+    }
+  ],
+  "files": [
+    {
+      "file_id": "f-001",
+      "text": "x"
+    }
+  ]
+}

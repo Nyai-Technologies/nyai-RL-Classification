@@ -1,0 +1,21 @@
+{
+  "rl": [
+    {
+      "name": "MSA",
+      "description": "Master Services Agreement. Umbrella contract between a client and a supplier governing all future engagements: term and renewal, invoicing and payment, confidentiality, IP ownership, liability, governing law and arbitration.",
+      "count": 1
+    },
+    {
+      "name": "SOW",
+      "description": "Statement of Work. Project-specific document issued under a parent MSA: scope, deliverables and milestones with dates, team, fees and payment schedule, acceptance criteria.",
+      "count": 1
+    }
+  ],
+  "files": [
+    {
+      "file_id": "f-001",
+      "file_name": "agreement_2025.pdf",
+      "text": "MASTER SERVICES AGREEMENT. This Master Services Agreement is entered into on 14 March 2025 between Orchid Retail Private Limited (Client) and Vertex Analytics LLP (Supplier). 1. Term and renewal: three years. 2. Fees and invoicing: monthly, payable within 45 days. 3. Confidentiality. 4. Limitation of liability. 5. Governing law and arbitration: Mumbai."
+    }
+  ]
+}
