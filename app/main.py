@@ -21,11 +21,10 @@ from app.logs import request_id_var, setup_logging
 
 @asynccontextmanager
 async def lifespan(app):
-    log.info("service starting: model=%s api_key_set=%s log_format=%s concurrency(per request/process/runs)=%d/%d/%d "
-             "limits(files=%d, rl_types=%d) min_confidence=%.2f cost_cap_usd=%s injection_guard=%s",
+    log.info("service starting: model=%s api_key_set=%s log_format=%s concurrency(per request/process)=%d/%d min_confidence=%.2f",
              settings.LLM_MODEL, bool(settings.LLM_API_KEY), settings.LOG_FORMAT, settings.WORKERS,
-             settings.MAX_LLM_CONCURRENCY, settings.MAX_CONCURRENT_RUNS, settings.MAX_FILES, settings.MAX_RL_TYPES,
-             settings.MIN_CONFIDENCE, settings.MAX_RUN_COST_USD or "off", settings.INJECTION_GUARD)
+             settings.MAX_LLM_CONCURRENCY,
+             settings.MIN_CONFIDENCE)
     if not settings.LLM_API_KEY:
         log.error("OPENAI_API_KEY is not set: /rl-classification will answer 503 until it is configured")
     asyncio.get_running_loop().run_in_executor(None, pricing.warm_caches)      # price + FX lookup in the background

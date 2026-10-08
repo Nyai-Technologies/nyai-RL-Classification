@@ -11,9 +11,7 @@ router = APIRouter()
 @router.post(
     "/rl-classification", tags=["RL classification"], summary="RL classification",
     response_model=ClassificationResponse, response_model_exclude_unset=True,
-    responses={413: {"model": ErrorResponse, "description": "too many files in one request"},
-               422: {"model": ErrorResponse, "description": "invalid input"},
-               429: {"model": ErrorResponse, "description": "too many runs in progress, retry shortly"},
+    responses={422: {"model": ErrorResponse, "description": "invalid input"},
                502: {"model": ErrorResponse, "description": "the LLM provider failed for every file"},
                503: {"model": ErrorResponse, "description": "API key or model is not configured correctly"}})
 async def rl_classification(req: ClassificationRequest):

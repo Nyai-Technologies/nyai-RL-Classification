@@ -1,6 +1,6 @@
 """Command line, for testing without the API:
 
-  python -m app.cli --input testing/test_sets/scenarios_test/request.json --out predictions.csv
+  python -m app.cli --input request.json --out predictions.csv
 
 --input is a JSON file with the same shape as the API body ({"rl": [...], "files": [...]}). Parsing is done upstream."""
 import argparse

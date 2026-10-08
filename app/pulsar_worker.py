@@ -2,18 +2,16 @@
 
   python -m app.pulsar_worker
 
-Input topic (PULSAR_INPUT_TOPIC): one JSON message = the API request body, plus an optional "correlation_id":
-  {"correlation_id": "abc-1", "rl": [{name, description, count?}], "files": [{file_id, text | chunks, file_name?}], "rl_id": "..."?}
-Result topic (PULSAR_RESULT_TOPIC): one JSON message per input message = the API response plus "correlation_id":
+In  (PULSAR_INPUT_TOPIC):  one JSON message = the API request body, plus an optional "correlation_id":
+  {"correlation_id": "abc-1", "rl": [{name, description, count?}], "files": [{file_id, text | chunks, file_name?}]}
+Out (PULSAR_RESULT_TOPIC): one JSON message per input message = the API response plus "correlation_id":
   {"correlation_id": "abc-1", "rl_id": ..., "results": [...], "counts": [...], "by_status": ..., "by_type": ..., "usage": ...}
-  or, when the message cannot be classified at all (bad JSON, invalid RL, too many files...):
+  or, when the message could not be classified (bad JSON, invalid RL, LLM key problem...):
   {"correlation_id": "abc-1", "error": {"status_code": 422, "detail": "..."}}
-Message properties on the result: correlation_id. The message key is the correlation_id too.
 
-Failures: temporary ones (the LLM provider is down or rate limiting, a configuration problem) are negatively acknowledged and
-delivered again after PULSAR_NACK_DELAY_SECONDS; after PULSAR_MAX_REDELIVER tries Pulsar moves the message to the dead-letter
-topic (PULSAR_DLQ_TOPIC). Messages that can never succeed get an error result and are acknowledged. The subscription is Shared:
-run as many workers (pods) as you need. On SIGTERM the worker stops taking messages and finishes the ones in flight.
+Every message is answered once and then acknowledged: there are no retries here (the LLM calls already retry rate limits and
+timeouts), so the sender sees an error result and can simply send the message again. The subscription is Shared: run as many
+workers as you need. On SIGTERM the worker stops taking messages and finishes the ones in flight.
 """
 import asyncio
 import json
@@ -27,8 +25,6 @@ from app.errors import RequestRejected
 from app.logs import log, request_id_var, setup_logging
 from app.schemas import ClassificationRequest
 
-RETRYABLE = {429, 502, 503}        # busy, the LLM provider failed, or the key/model is misconfigured: try again later
-
 
 def _is_timeout(exc):
     return type(exc).__name__ == "Timeout"          # pulsar.Timeout (looked up by name so tests need no broker)
@@ -39,13 +35,12 @@ class Worker:
         self.consumer, self.producer = consumer, producer
         self.max_in_flight = max_in_flight or settings.PULSAR_MAX_IN_FLIGHT
 
-    # ---------------------------- one message ----------------------------
     async def _publish(self, payload, corr):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         await asyncio.to_thread(self.producer.send, data, properties={"correlation_id": corr}, partition_key=corr)
 
     async def handle(self, msg):
-        """Classify one message, publish the result, acknowledge. Never raises."""
+        """Classify one message, publish the result (or an error), acknowledge. Never raises."""
         mid = str(msg.message_id())
         corr = (msg.properties() or {}).get("correlation_id") or mid
         try:
@@ -56,50 +51,33 @@ class Worker:
             request_id_var.set(corr)
             detail = str(e).splitlines()[0][:300] if isinstance(e, ValueError) else "invalid message"
             log.warning("pulsar message %s rejected (invalid): %s", mid, detail)
-            await self._reply_error(msg, corr, 422, f"invalid message: {detail}")
+            await self._answer(msg, corr, {"error": {"status_code": 422, "detail": f"invalid message: {detail}"}})
             return
         request_id_var.set(corr)
         log.info("pulsar message %s: correlation_id=%s files=%d rl_types=%d", mid, corr, len(req.files), len(req.rl))
         try:
-            result = await service.classify_request([i.model_dump() for i in req.rl], [f.model_dump() for f in req.files],
-                                                    req.rl_id, enforce_run_limit=False)
+            result = await service.classify_request([i.model_dump() for i in req.rl], [f.model_dump() for f in req.files], req.rl_id)
         except RequestRejected as e:
-            if e.status_code in RETRYABLE:
-                log.warning("pulsar message %s: %d %s -> will be retried", mid, e.status_code, e.detail)
-                self._nack(msg)
-            else:
-                log.warning("pulsar message %s rejected (%d): %s", mid, e.status_code, e.detail)
-                await self._reply_error(msg, corr, e.status_code, e.detail)
+            log.warning("pulsar message %s rejected (%d): %s", mid, e.status_code, e.detail)
+            await self._answer(msg, corr, {"error": {"status_code": e.status_code, "detail": e.detail}})
             return
         except Exception:
-            log.exception("pulsar message %s: unexpected failure -> will be retried", mid)
-            self._nack(msg)
+            log.exception("pulsar message %s: unexpected failure", mid)
+            await self._answer(msg, corr, {"error": {"status_code": 500, "detail": "unexpected error while classifying"}})
             return
-        try:
-            await self._publish({"correlation_id": corr, **result}, corr)
-        except Exception:
-            log.exception("pulsar message %s: could not publish the result -> will be retried", mid)
-            self._nack(msg)
-            return
-        self.consumer.acknowledge(msg)
+        await self._answer(msg, corr, result)
         log.info("pulsar message %s done: by_status=%s", mid, result["by_status"])
 
-    async def _reply_error(self, msg, corr, status_code, detail):
+    async def _answer(self, msg, corr, payload):
+        """Publish the answer, then acknowledge. If the answer cannot be published the message is not acknowledged."""
         try:
-            await self._publish({"correlation_id": corr, "error": {"status_code": status_code, "detail": detail}}, corr)
+            await self._publish({"correlation_id": corr, **payload}, corr)
         except Exception:
-            log.exception("pulsar message %s: could not publish the error result -> will be retried", msg.message_id())
-            self._nack(msg)
+            log.exception("pulsar message %s: could not publish the answer; leaving it to be delivered again", msg.message_id())
+            self.consumer.negative_acknowledge(msg)
             return
         self.consumer.acknowledge(msg)
 
-    def _nack(self, msg):
-        try:
-            self.consumer.negative_acknowledge(msg)
-        except Exception:
-            log.exception("could not negatively acknowledge message %s", msg.message_id())
-
-    # ---------------------------- the loop ----------------------------
     async def run(self, stop: asyncio.Event):
         slots = asyncio.Semaphore(self.max_in_flight)
         tasks = set()
@@ -139,17 +117,11 @@ def connect():
     kw = {"operation_timeout_seconds": 30}
     if settings.PULSAR_AUTH_TOKEN:
         kw["authentication"] = pulsar.AuthenticationToken(settings.PULSAR_AUTH_TOKEN)
-    if settings.PULSAR_TLS_TRUST_CERTS:
-        kw["tls_trust_certs_file_path"] = settings.PULSAR_TLS_TRUST_CERTS
     client = pulsar.Client(settings.PULSAR_SERVICE_URL, **kw)
     consumer = client.subscribe(
         settings.PULSAR_INPUT_TOPIC, settings.PULSAR_SUBSCRIPTION,
         consumer_type=pulsar.ConsumerType.Shared,
-        initial_position=pulsar.InitialPosition.Earliest,       # a new subscription also gets messages sent before it existed
-        negative_ack_redelivery_delay_ms=int(settings.PULSAR_NACK_DELAY_SECONDS * 1000),
-        dead_letter_policy=pulsar.ConsumerDeadLetterPolicy(
-            max_redeliver_count=settings.PULSAR_MAX_REDELIVER, dead_letter_topic=settings.PULSAR_DLQ_TOPIC,
-            initial_subscription_name=settings.PULSAR_SUBSCRIPTION + "-dlq"))
+        initial_position=pulsar.InitialPosition.Earliest)       # a new subscription also gets messages sent before it existed
     producer = client.create_producer(settings.PULSAR_RESULT_TOPIC)
     return client, consumer, producer
 
@@ -158,9 +130,13 @@ async def main():
     setup_logging()
     if not settings.LLM_API_KEY:
         raise SystemExit("OPENAI_API_KEY is not set")
-    log.info("pulsar worker starting: %s in=%s out=%s dlq=%s subscription=%s", settings.PULSAR_SERVICE_URL,
-             settings.PULSAR_INPUT_TOPIC, settings.PULSAR_RESULT_TOPIC, settings.PULSAR_DLQ_TOPIC, settings.PULSAR_SUBSCRIPTION)
-    client, consumer, producer = connect()
+    log.info("pulsar worker starting: %s in=%s out=%s subscription=%s", settings.PULSAR_SERVICE_URL,
+             settings.PULSAR_INPUT_TOPIC, settings.PULSAR_RESULT_TOPIC, settings.PULSAR_SUBSCRIPTION)
+    try:
+        client, consumer, producer = connect()
+    except Exception as e:                           # no broker, wrong URL, bad token...
+        log.error("could not connect to Pulsar at %s: %s", settings.PULSAR_SERVICE_URL, e)
+        raise SystemExit(f"could not connect to Pulsar at {settings.PULSAR_SERVICE_URL}: {e}")
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
