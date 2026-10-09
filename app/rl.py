@@ -5,7 +5,8 @@ import json
 from app.logs import log
 
 OTHER = "OTHER"                                              # "none of the RL types fits"
-STATUSES = ["classified", "low_confidence", "no_match", "error"]
+NO_RL_TEXT = "no rl class identified for this"               # what `tags` says for an OTHER file
+STATUSES = ["high", "medium", "low", "error"]
 
 
 def validate_rl(rl):
@@ -38,12 +39,12 @@ def rl_hash(rl):
 
 def reconcile(rl_items, rows):
     """Expected count (from the user) vs what was found, per RL name.
-    classified = auto-labelled; needs_review = low_confidence candidates not yet confirmed."""
+    classified = high-confidence files; needs_review = medium and low confidence files of that type."""
     out = []
     for it in rl_items:
         name, expected = it["name"], it.get("count")
-        classified = sum(1 for r in rows if r["status"] == "classified" and r["doc_type"] == name)
-        review = sum(1 for r in rows if r["status"] == "low_confidence" and r["doc_type"] == name)
+        classified = sum(1 for r in rows if r["status"] == "high" and r["doc_type"] == name)
+        review = sum(1 for r in rows if r["status"] in ("medium", "low") and r["doc_type"] == name)
         if expected is None:
             status = "NO_COUNT_GIVEN"
         elif classified == expected:
@@ -58,11 +59,11 @@ def reconcile(rl_items, rows):
 
 
 def summarize_rows(rl, rows):
-    """(status -> count, RL type -> classified count) for log lines and the CLI."""
+    """(status -> count, RL type -> high-confidence count) for log lines and the CLI."""
     counts, by_type = {}, {c["name"]: 0 for c in rl}
     by_type[OTHER] = 0
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
-        if r["status"] == "classified":
+        if r["status"] == "high":
             by_type[r["doc_type"]] = by_type.get(r["doc_type"], 0) + 1
     return counts, by_type

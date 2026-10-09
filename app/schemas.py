@@ -37,14 +37,18 @@ class ClassificationRequest(BaseModel):
         ]}}}
 
 
+class Tag(BaseModel):
+    doc_type: str = Field(description="an RL name, or 'no rl class identified for this' when no RL type fits")
+    confidence: float
+    status: Literal["high", "medium", "low"]
+
+
 class FileResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     file_id: str
     file_name: str
-    doc_type: str = Field(description="an RL name, or OTHER; empty when the file could not be classified")
-    status: Literal["classified", "low_confidence", "no_match", "error"]
-    confidence: Union[float, str, None] = Field(None, description="0 to 1; empty on error")
     reason: str = ""
+    tags: list[Tag] = Field(default_factory=list, description="up to 2 RL types that genuinely fit, best first; empty when the file could not be classified (see `reason`)")
     attempt: int = 1
     chunks_used: int = 0
     tokens_in: int = 0
@@ -77,7 +81,7 @@ class ClassificationResponse(BaseModel):
     results: list[FileResult]
     counts: list[CountCheck]
     by_status: dict[str, int]
-    by_type: dict[str, int] = Field(description="classified files per RL type, plus OTHER (confidently not in the RL)")
+    by_type: dict[str, int] = Field(description="high-confidence files per RL type, plus OTHER")
     usage: UsageSummary
 
 
