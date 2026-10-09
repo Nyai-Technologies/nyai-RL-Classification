@@ -59,8 +59,8 @@ class Settings:
     FX_URL: str = "https://open.er-api.com/v6/latest/USD"
 
     # ---- classification ----
-    MIN_CONFIDENCE: float = 0.80                 # below this a label goes to review
-    OTHER_AUTO_CONFIDENCE: float = 0.95          # a confident OTHER is final, no review needed (above 1 = always review)
+    MIN_CONFIDENCE: float = 0.80                 # this and above: status high
+    MEDIUM_CONFIDENCE: float = 0.60              # above this (and below MIN_CONFIDENCE): medium; this and below: low
     FIRST_CHUNKS: int = 3                        # chunks sent on the first try
     RETRY_CHUNKS: int = 6                        # chunks sent on the retry for unclear files
     MAX_CHARS: int = 6000                        # cap on text sent to the LLM
@@ -109,7 +109,7 @@ class Settings:
             USD_INR_FALLBACK=_float("USD_INR_FALLBACK", 88),
             FX_URL=_str("FX_URL", cls.FX_URL),
             MIN_CONFIDENCE=_float("MIN_CONFIDENCE", 0.80),
-            OTHER_AUTO_CONFIDENCE=_float("OTHER_AUTO_CONFIDENCE", 0.95),
+            MEDIUM_CONFIDENCE=_float("MEDIUM_CONFIDENCE", 0.60),
             FIRST_CHUNKS=_int("FIRST_CHUNKS", 3),
             RETRY_CHUNKS=_int("RETRY_CHUNKS", 6),
             MAX_CHARS=_int("MAX_CHARS", 6000),

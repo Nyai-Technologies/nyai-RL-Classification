@@ -33,4 +33,5 @@ async def classify_request(rl_items, files, rl_id=None):
     _, by_type = summarize_rows(rl, rows)
     api_log.info("files done: rl_id=%s by_status=%s by_type=%s counts=%s", rl_id, by_status, by_type,
                  [(c["rl"], c["status"]) for c in counts])
-    return {"rl_id": rl_id, "results": rows, "counts": counts, "by_status": by_status, "by_type": by_type, "usage": usage}
+    results = [{k: v for k, v in r.items() if k not in ("doc_type", "status", "confidence")} for r in rows]  # all in `tags`
+    return {"rl_id": rl_id, "results": results, "counts": counts, "by_status": by_status, "by_type": by_type, "usage": usage}

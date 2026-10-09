@@ -33,7 +33,7 @@ def load_rl(path):
 def print_summary(rl, rows, u, out_csv):
     counts, by_type = summarize_rows(rl, rows)
     print("status:", counts)
-    print("classified per RL type:", by_type)
+    print("high-confidence per RL type:", by_type)
     print(f"tokens: {u['prompt_tokens']} in + {u['completion_tokens']} out over {u['calls']} calls")
     if u["cost_usd"] is None:
         print("cost: n/a (no price found; set LLM_PRICE_IN_PER_M / LLM_PRICE_OUT_PER_M)")

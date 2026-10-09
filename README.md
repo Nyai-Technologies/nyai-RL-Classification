@@ -21,14 +21,16 @@ Swagger docs: http://localhost:8000/docs
  "files": [{"file_id": "f-001", "text": "<parsed text>"},
            {"file_id": "f-002", "chunks": ["chunk 1", "chunk 2"], "file_name": "x.pdf"}]}
 ```
-Send one file or many. Response: `results[]` (per file: `doc_type`, `status`, `confidence`, `reason`, tokens, cost),
+Send one file or many. Response: `results[]` (per file: `tags`, `reason`, tokens, cost),
 `counts[]` (per RL type: `expected`, `classified`, `needs_review`, `status` = OK | MISSING n | EXTRA n | PENDING_REVIEW |
-NO_COUNT_GIVEN), `by_status`, `by_type` (classified files per RL type, plus OTHER), `usage` (tokens, cost in USD and INR).
+NO_COUNT_GIVEN), `by_status`, `by_type` (high-confidence files per RL type, plus OTHER), `usage` (tokens, cost in USD and INR).
 
 The label comes from the content only: the file name is never used and never shown to the model.
-Status per file: `classified` (safe to use; `doc_type` is an RL type, or `OTHER` when the model is confident the file is not
-in the RL) | `low_confidence` (below MIN_CONFIDENCE: needs review) | `no_match` (an unsure
-OTHER: needs review) | `error` (no text received, or the LLM gave no valid answer).
+Each file has `tags[]`: up to 2 `{doc_type, confidence, status}`, best first. `doc_type` is an RL type, the second tag only when
+that type genuinely fits too (confidence above `MEDIUM_CONFIDENCE`). `status` is the confidence band of that tag: `high` (0.80 or
+more, `MIN_CONFIDENCE`) | `medium` (above 0.60, below 0.80) | `low` (0.60 or below). An `OTHER` file gets one tag whose `doc_type`
+is "no rl class identified for this". A file that could not be classified (no text received, or the LLM gave no valid answer)
+has empty `tags` and says why in `reason`. `counts[]`, `by_status` and `by_type` use the best tag; `by_status` also has `error`.
 
 Also `GET /health`. The endpoint is `async`: the LLM calls are non-blocking, files of a request run concurrently (`WORKERS`),
 and the call returns when all its files are done.

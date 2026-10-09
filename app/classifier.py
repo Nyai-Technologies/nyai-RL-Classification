@@ -2,6 +2,7 @@
 timeouts, spend cap, abort on configuration errors)."""
 import asyncio
 import csv
+import json
 import time
 
 from app import llm
@@ -9,11 +10,11 @@ from app.config import settings
 from app.errors import LLMError, RunAborted
 from app.logs import cost_log, file_id_var, log, rl_id_var
 from app.pricing import Usage, cost_fields, warm_caches
-from app.rl import OTHER, summarize_rows
+from app.rl import NO_RL_TEXT, OTHER, summarize_rows
 from app.rules import decide
 
 PRED_COLS = ["file_id", "file_name", "doc_type", "status", "confidence", "reason",
-             "attempt", "chunks_used", "tokens_in", "tokens_out", "cost_usd", "cost_inr"]
+             "attempt", "chunks_used", "tags", "tokens_in", "tokens_out", "cost_usd", "cost_inr"]
 
 
 def with_cost(row, tokens_in, tokens_out):
@@ -25,6 +26,17 @@ def with_cost(row, tokens_in, tokens_out):
                          "tokens_out": tokens_out, "cost_usd": out["cost_usd"], "cost_inr": out["cost_inr"],
                          "attempts": row.get("attempt")})
     return out
+
+
+def tags_of(res):
+    """The file's tags, best first: [{doc_type, confidence, status}] (one, or two when a second RL type genuinely fits).
+    An OTHER file gets a single tag that says no RL class was identified."""
+    if res["doc_type"] == OTHER:
+        return [{"doc_type": NO_RL_TEXT, "confidence": res["confidence"], "status": decide(res["confidence"])}]
+    found = [{"doc_type": res["doc_type"], "confidence": res["confidence"]}]
+    if res.get("also"):
+        found.append(res["also"])
+    return [{**t, "status": decide(t["confidence"])} for t in found]
 
 
 def classify_file(src, clf, file_id):
@@ -40,20 +52,20 @@ async def aclassify_file(src, clf, file_id):
         why = "no text received (empty, or a scanned file that needs OCR)"
         log.warning("[%s] %s: %s -> status=error, LLM not called", file_id, name, why)
         return with_cost({**row, "doc_type": "", "status": "error", "confidence": "", "reason": why,
-                          "attempt": 1, "chunks_used": 0}, 0, 0)
+                          "attempt": 1, "chunks_used": 0, "tags": []}, 0, 0)
     try:
         res = await clf.aclassify(name, chunks)
     except LLMError as e:
         log.error("[%s] %s: LLM failed -> status=error: %s", file_id, name, e)
         return with_cost({**row, "doc_type": "", "status": "error", "confidence": "", "reason": str(e)[:200],
-                          "attempt": 1, "chunks_used": len(chunks)}, *e.tokens)
+                          "attempt": 1, "chunks_used": len(chunks), "tags": []}, *e.tokens)
     attempt, used = 1, len(chunks)
     tin, tout = res["tokens_in"], res["tokens_out"]
-    status = decide(res["doc_type"], res["confidence"])
+    status = decide(res["confidence"])
     log.info("[%s] attempt 1: doc_type=%s conf=%.2f -> %s", file_id, res["doc_type"], res["confidence"], status)
 
     # unclear -> retry with more chunks; OTHER too, because the title may sit beyond the first chunks
-    if status != "classified" or res["doc_type"] == OTHER:
+    if status != "high" or res["doc_type"] == OTHER:
         _, more = src.chunks(file_id, settings.RETRY_CHUNKS)
         if len(more) > len(chunks):
             log.info("[%s] unclear (%s), retrying with %d chunks", file_id, status, len(more))
@@ -61,7 +73,7 @@ async def aclassify_file(src, clf, file_id):
                 res2 = await clf.aclassify(name, more)
                 tin, tout = tin + res2["tokens_in"], tout + res2["tokens_out"]
                 res, attempt, used = res2, 2, len(more)
-                status = decide(res["doc_type"], res["confidence"])
+                status = decide(res["confidence"])
                 log.info("[%s] attempt 2: doc_type=%s conf=%.2f -> %s", file_id, res["doc_type"],
                          res["confidence"], status)
             except LLMError as e:
@@ -72,8 +84,11 @@ async def aclassify_file(src, clf, file_id):
 
     log.info("[%s] FINAL %s: doc_type=%s status=%s conf=%.2f reason=%s", file_id, name, res["doc_type"], status,
              res["confidence"], res["reason"])
-    res = {k: v for k, v in res.items() if k not in ("tokens_in", "tokens_out")}
-    return with_cost({**row, **res, "status": status, "attempt": attempt, "chunks_used": used}, tin, tout)
+    tags = tags_of(res)
+    log.info("[%s] tags: %s", file_id, tags)
+    res = {k: v for k, v in res.items() if k not in ("tokens_in", "tokens_out", "also")}
+    return with_cost({**row, **res, "status": status, "tags": tags, "attempt": attempt,
+                      "chunks_used": used}, tin, tout)
 
 
 def run(rl, src, rl_id, out_csv=None, workers=None, progress=None, client=None):
@@ -93,9 +108,9 @@ async def arun(rl, src, rl_id, out_csv=None, workers=None, progress=None, client
     clf = llm.LLMClassifier(rl, client=client, usage=usage)
     files = list(src.file_ids())
     workers = workers or settings.WORKERS
-    log.info("run start: rl_id=%s categories=%d files=%d model=%s concurrency=%d min_conf=%.2f chunks=%d/%d max_chars=%d",
-             rl_id, len(rl), len(files), settings.LLM_MODEL, workers, settings.MIN_CONFIDENCE, settings.FIRST_CHUNKS,
-             settings.RETRY_CHUNKS, settings.MAX_CHARS)
+    log.info("run start: rl_id=%s categories=%d files=%d model=%s concurrency=%d min_conf=%.2f medium_conf=%.2f chunks=%d/%d max_chars=%d",
+             rl_id, len(rl), len(files), settings.LLM_MODEL, workers, settings.MIN_CONFIDENCE,
+             settings.MEDIUM_CONFIDENCE, settings.FIRST_CHUNKS, settings.RETRY_CHUNKS, settings.MAX_CHARS)
     await asyncio.to_thread(warm_caches)           # price and FX lookups may hit the network: keep them off the event loop
 
     abort = {"reason": None}
@@ -103,7 +118,7 @@ async def arun(rl, src, rl_id, out_csv=None, workers=None, progress=None, client
 
     def error_row(fid, reason, attempt=1):
         return {"file_id": fid, "file_name": fid, "doc_type": "", "status": "error", "confidence": "",
-                "reason": reason, "attempt": attempt, "chunks_used": 0,
+                "reason": reason, "attempt": attempt, "chunks_used": 0, "tags": [],
                 "tokens_in": 0, "tokens_out": 0, **cost_fields(0, 0)}
 
     async def work(fid):
@@ -136,7 +151,7 @@ async def arun(rl, src, rl_id, out_csv=None, workers=None, progress=None, client
         with open(out_csv, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=PRED_COLS, extrasaction="ignore")
             w.writeheader()
-            w.writerows(rows)
+            w.writerows({**r, "tags": json.dumps(r.get("tags", []))} for r in rows)
         log.info("wrote %d rows to %s", len(rows), out_csv)
 
     counts, by_type = summarize_rows(rl, rows)
