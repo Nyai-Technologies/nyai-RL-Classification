@@ -29,13 +29,12 @@ def with_cost(row, tokens_in, tokens_out):
 
 
 def tags_of(res):
-    """The file's tags, best first: [{doc_type, confidence, status}] (one, or two when a second RL type genuinely fits).
+    """The file's tags, best first: [{doc_type, confidence, status}] (one, or more when other RL types genuinely fit too).
     An OTHER file gets a single tag that says no RL class was identified."""
     if res["doc_type"] == OTHER:
         return [{"doc_type": NO_RL_TEXT, "confidence": res["confidence"], "status": decide(res["confidence"])}]
     found = [{"doc_type": res["doc_type"], "confidence": res["confidence"]}]
-    if res.get("also"):
-        found.append(res["also"])
+    found += res.get("also") or []
     return [{**t, "status": decide(t["confidence"])} for t in found]
 
 

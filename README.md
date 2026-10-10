@@ -26,7 +26,7 @@ Send one file or many. Response: `results[]` (per file: `tags`, `reason`, tokens
 NO_COUNT_GIVEN), `by_status`, `by_type` (high-confidence files per RL type, plus OTHER), `usage` (tokens, cost in USD and INR).
 
 The label comes from the content only: the file name is never used and never shown to the model.
-Each file has `tags[]`: up to 2 `{doc_type, confidence, status}`, best first. `doc_type` is an RL type, the second tag only when
+Each file has `tags[]`: one or more `{doc_type, confidence, status}`, best first (no fixed maximum). `doc_type` is an RL type, every further tag only when
 that type genuinely fits too (confidence above `MEDIUM_CONFIDENCE`). `status` is the confidence band of that tag: `high` (0.80 or
 more, `MIN_CONFIDENCE`) | `medium` (above 0.60, below 0.80) | `low` (0.60 or below). An `OTHER` file gets one tag whose `doc_type`
 is "no rl class identified for this". A file that could not be classified (no text received, or the LLM gave no valid answer)

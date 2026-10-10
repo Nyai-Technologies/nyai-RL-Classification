@@ -48,7 +48,7 @@ class FileResult(BaseModel):
     file_id: str
     file_name: str
     reason: str = ""
-    tags: list[Tag] = Field(default_factory=list, description="up to 2 RL types that genuinely fit, best first; empty when the file could not be classified (see `reason`)")
+    tags: list[Tag] = Field(default_factory=list, description="every RL type that genuinely fits (one or more), best first; empty when the file could not be classified (see `reason`)")
     attempt: int = 1
     chunks_used: int = 0
     tokens_in: int = 0

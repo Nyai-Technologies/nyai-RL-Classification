@@ -56,11 +56,12 @@ SYSTEM_PROMPT = (
     "Lower your confidence when the excerpt mixes several document types, when title and body disagree, "
     "or when the text is too short or garbled to decide. Use 0.9+ only when title and structure clearly "
     "match one description.\n"
-    "If a second RL type also genuinely matches this document (its description really fits, not just a similar "
-    'type), add it as "also". Leave "also" out when only one type fits; never put OTHER in "also".\n'
+    "If other RL types also genuinely match this document (their description really fits, not just a similar "
+    'type), add each of them to "also": one, two or more, as many as really fit. Leave "also" out when only one '
+    'type fits; never put OTHER in "also".\n'
     'Reply with JSON only: {"doc_type": "<exact RL name or OTHER>", "confidence": <0.0-1.0>, '
     '"reason": "<one short sentence citing what in the text decided it>", '
-    '"also": {"doc_type": "<exact RL name>", "confidence": <0.0-1.0>}}'
+    '"also": [{"doc_type": "<exact RL name>", "confidence": <0.0-1.0>}, ...]}'
 )
 
 
@@ -173,20 +174,27 @@ class LLMClassifier:
         """Blocking wrapper for scripts and tests; the service uses aclassify()."""
         return asyncio.run(self.aclassify(file_name, chunks))
 
-    def _second(self, raw, first):
-        """The optional second tag, or None when it is missing, malformed, OTHER, the same as the first, or only a weak
-        match (a tag must be above MEDIUM_CONFIDENCE to count as genuinely matching)."""
-        try:
-            label = self.canon.get(str(raw["doc_type"]).strip().lower())
-            conf = max(0.0, min(1.0, float(raw["confidence"])))
-        except (KeyError, TypeError, ValueError):
-            return None
-        if label is None or label == OTHER or label == first or conf <= settings.MEDIUM_CONFIDENCE:
-            return None
-        return {"doc_type": label, "confidence": conf}
+    def _others(self, raw, first):
+        """The optional further tags, best first: only RL types that are not OTHER, not the first label, not repeated, and
+        above MEDIUM_CONFIDENCE (a tag must genuinely match to count). A single object is accepted as a list of one."""
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return []
+        found = {}
+        for item in raw:
+            try:
+                label = self.canon.get(str(item["doc_type"]).strip().lower())
+                conf = max(0.0, min(1.0, float(item["confidence"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if label is None or label == OTHER or label == first or conf <= settings.MEDIUM_CONFIDENCE:
+                continue
+            found[label] = max(conf, found.get(label, 0.0))
+        return sorted(({"doc_type": k, "confidence": v} for k, v in found.items()), key=lambda t: -t["confidence"])
 
     async def aclassify(self, file_name, chunks):
-        """Returns {doc_type (exact RL name or OTHER), confidence, reason, also (a second RL type + confidence, or None),
+        """Returns {doc_type (exact RL name or OTHER), confidence, reason, also (the other RL types that fit, each with confidence; [] when none),
         tokens_in, tokens_out}.
         An invalid answer is retried once, then LLMError."""
         prompt = build_user_prompt(self.rl, chunks)      # content only: the file name is never shown to the model
@@ -204,9 +212,10 @@ class LLMClassifier:
                     raise ValueError(f"unknown doc_type {d.get('doc_type')!r}")
                 conf = max(0.0, min(1.0, float(d.get("confidence"))))
                 log.debug("LLM answer for %s: doc_type=%s confidence=%.2f", file_name, label, conf)
-                also = self._second(d.get("also"), label) if label != OTHER else None
-                if also and also["confidence"] > conf:       # doc_type stays the best-fitting one
-                    label, conf, also = also["doc_type"], also["confidence"], {"doc_type": label, "confidence": conf}
+                also = self._others(d.get("also"), label) if label != OTHER else []
+                if also and also[0]["confidence"] > conf:    # doc_type stays the best-fitting one
+                    everyone = sorted(also + [{"doc_type": label, "confidence": conf}], key=lambda t: -t["confidence"])
+                    label, conf, also = everyone[0]["doc_type"], everyone[0]["confidence"], everyone[1:]
                 return {"doc_type": label, "confidence": conf, "reason": str(d.get("reason", ""))[:300], "also": also,
                         "tokens_in": tin, "tokens_out": tout}
             except (ValueError, TypeError, json.JSONDecodeError) as e:
