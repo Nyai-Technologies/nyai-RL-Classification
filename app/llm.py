@@ -59,6 +59,13 @@ SYSTEM_PROMPT = (
     "If other RL types also genuinely match this document (their description really fits, not just a similar "
     'type), add each of them to "also": one, two or more, as many as really fit. Leave "also" out when only one '
     'type fits; never put OTHER in "also".\n'
+    "Check EVERY RL type against the document one by one and include each that fits; do not stop at the first match. "
+    "RL types are of two kinds: specific ones that name the document's subject (for example NDA, lease, employment) "
+    "and broad ones that name its general kind or form (for example agreement, letter, notice, policy, template, "
+    "draft). A document normally fits one or more specific types and also every broad type that describes it: an "
+    "NDA is also an agreement, a lawyer's legal notice is also a notice and a letter, an agreement still full of "
+    "blanks is also a template. Always return the broad types that apply together with the specific ones, in "
+    "\"also\" when the main one is the doc_type.\n"
     'Reply with JSON only: {"doc_type": "<exact RL name or OTHER>", "confidence": <0.0-1.0>, '
     '"reason": "<one short sentence citing what in the text decided it>", '
     '"also": [{"doc_type": "<exact RL name>", "confidence": <0.0-1.0>}, ...]}'
