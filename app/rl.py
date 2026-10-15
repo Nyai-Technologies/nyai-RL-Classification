@@ -11,8 +11,8 @@ STATUSES = ["high", "medium", "low", "error"]
 
 def validate_rl(rl):
     """Returns [{name, description}] or raises ValueError with a message the caller can show."""
-    if not isinstance(rl, list) or len(rl) < 2:
-        raise ValueError("RL must be a list of at least 2 {name, description} items")
+    if not isinstance(rl, list) or len(rl) < 1:
+        raise ValueError("RL must be a list of at least 1 {name, description} item")
     out, seen = [], set()
     for i, item in enumerate(rl):
         name = str(item.get("name", "")).strip()
