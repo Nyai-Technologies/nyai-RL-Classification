@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 120 --retries 10 -r requirements.txt
 COPY app ./app
 
 # OpenShift (OCP) starts containers as an arbitrary non-root user that belongs to group 0, so /app is made group-readable.
