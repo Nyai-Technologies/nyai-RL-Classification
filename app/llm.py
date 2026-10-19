@@ -72,12 +72,62 @@ SYSTEM_PROMPT = (
 )
 
 
+CITATIONS_PER_TAG = 2                            # most quotes kept per tag
+
+CITATION_NOTE = (
+    "\nCitations: for the doc_type and for every item in \"also\", add \"quotes\": one or two short passages (each at "
+    "most 200 characters) copied EXACTLY, word for word, from the document text above, that show why this type fits. "
+    "Never paraphrase or invent a quote; if no passage supports a type, give an empty list. With citations the reply "
+    'is: {"doc_type": "<exact RL name or OTHER>", "confidence": <0.0-1.0>, "reason": "<one short sentence>", '
+    '"quotes": ["<exact passage>"], "also": [{"doc_type": "<exact RL name>", "confidence": <0.0-1.0>, '
+    '"quotes": ["<exact passage>"]}, ...]}'
+)
+
+
 def system_prompt():
-    """Built-in prompt, or the contents of SYSTEM_PROMPT_FILE when set (must still ask for the same JSON reply)."""
+    """Built-in prompt, or the contents of SYSTEM_PROMPT_FILE when set (must still ask for the same JSON reply).
+    The request for quotes (citations) is always added at the end."""
     if settings.SYSTEM_PROMPT_FILE:
         with open(settings.SYSTEM_PROMPT_FILE, encoding="utf-8") as f:
-            return f.read()
-    return SYSTEM_PROMPT
+            base = f.read()
+    else:
+        base = SYSTEM_PROMPT
+    return base + CITATION_NOTE
+
+
+def _norm(s):
+    """Lower case, one space between words, plain quotes and dashes: so a quote still matches after the model (or the
+    parser) changed spacing or punctuation a little."""
+    s = str(s).replace("‘", "'").replace("’", "'").replace("“", '"').replace("”", '"')
+    s = s.replace("–", "-").replace("—", "-").replace(" ", " ")
+    return " ".join(s.lower().split())
+
+
+def verify_quotes(quotes, chunks, limit=None):
+    """Citations that really are in the text: [{text, chunk}] with chunk = 1-based number of the chunk the quote was found in.
+    A quote that is not found in any chunk (invented or reworded by the model) is dropped; so are duplicates."""
+    limit = limit or CITATIONS_PER_TAG
+    if isinstance(quotes, str):
+        quotes = [quotes]
+    if not isinstance(quotes, list):
+        return []
+    normed = [_norm(c) for c in chunks]
+    out, seen = [], set()
+    for q in quotes:
+        if not isinstance(q, str):
+            continue
+        text = q.strip().rstrip(".…").strip()            # models like to end a quote with "..."
+        key = _norm(text)
+        if len(key) < 12 or key in seen:
+            continue
+        for i, c in enumerate(normed, 1):
+            if key in c:
+                out.append({"text": text[:300], "chunk": i})
+                seen.add(key)
+                break
+        if len(out) >= limit:
+            break
+    return out
 
 
 def build_user_prompt(rl, chunks):
@@ -181,9 +231,10 @@ class LLMClassifier:
         """Blocking wrapper for scripts and tests; the service uses aclassify()."""
         return asyncio.run(self.aclassify(file_name, chunks))
 
-    def _others(self, raw, first):
+    def _others(self, raw, first, chunks=()):
         """The optional further tags, best first: only RL types that are not OTHER, not the first label, not repeated, and
-        above MEDIUM_CONFIDENCE (a tag must genuinely match to count). A single object is accepted as a list of one."""
+        above MEDIUM_CONFIDENCE (a tag must genuinely match to count). A single object is accepted as a list of one.
+        Each tag also carries its verified citations."""
         if isinstance(raw, dict):
             raw = [raw]
         if not isinstance(raw, list):
@@ -197,8 +248,16 @@ class LLMClassifier:
                 continue
             if label is None or label == OTHER or label == first or conf <= settings.MEDIUM_CONFIDENCE:
                 continue
-            found[label] = max(conf, found.get(label, 0.0))
-        return sorted(({"doc_type": k, "confidence": v} for k, v in found.items()), key=lambda t: -t["confidence"])
+            cites = verify_quotes(item.get("quotes"), chunks)
+            if label in found:                                  # same type twice: keep the higher confidence, merge quotes
+                old = found[label]
+                if cites:
+                    old["citations"] = (old.get("citations", []) + cites)[:CITATIONS_PER_TAG]
+                old["confidence"] = max(conf, old["confidence"])
+            else:
+                found[label] = {"doc_type": label, "confidence": conf}
+                found[label]["citations"] = cites
+        return sorted(found.values(), key=lambda t: -t["confidence"])
 
     async def aclassify(self, file_name, chunks):
         """Returns {doc_type (exact RL name or OTHER), confidence, reason, also (the other RL types that fit, each with confidence; [] when none),
@@ -219,12 +278,18 @@ class LLMClassifier:
                     raise ValueError(f"unknown doc_type {d.get('doc_type')!r}")
                 conf = max(0.0, min(1.0, float(d.get("confidence"))))
                 log.debug("LLM answer for %s: doc_type=%s confidence=%.2f", file_name, label, conf)
-                also = self._others(d.get("also"), label) if label != OTHER else []
+                main = {"doc_type": label, "confidence": conf}
+                if label != OTHER:
+                    main["citations"] = verify_quotes(d.get("quotes"), chunks)
+                also = self._others(d.get("also"), label, chunks) if label != OTHER else []
                 if also and also[0]["confidence"] > conf:    # doc_type stays the best-fitting one
-                    everyone = sorted(also + [{"doc_type": label, "confidence": conf}], key=lambda t: -t["confidence"])
-                    label, conf, also = everyone[0]["doc_type"], everyone[0]["confidence"], everyone[1:]
-                return {"doc_type": label, "confidence": conf, "reason": str(d.get("reason", ""))[:300], "also": also,
-                        "tokens_in": tin, "tokens_out": tout}
+                    everyone = sorted(also + [main], key=lambda t: -t["confidence"])
+                    main, also = everyone[0], everyone[1:]
+                out = {"doc_type": main["doc_type"], "confidence": main["confidence"],
+                       "reason": str(d.get("reason", ""))[:300], "also": also, "tokens_in": tin, "tokens_out": tout}
+                if "citations" in main:
+                    out["citations"] = main["citations"]
+                return out
             except (ValueError, TypeError, json.JSONDecodeError) as e:
                 last = f"{e}; raw={raw[:80]!r}"
                 log.warning("invalid LLM output for %s (attempt %d/2): %s", file_name, i + 1, last)
