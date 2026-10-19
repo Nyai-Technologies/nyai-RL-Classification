@@ -32,8 +32,8 @@ def tags_of(res):
     """The file's tags, best first: [{doc_type, confidence, status}] (one, or more when other RL types genuinely fit too).
     An OTHER file gets a single tag that says no RL class was identified."""
     if res["doc_type"] == OTHER:
-        return [{"doc_type": NO_RL_TEXT, "confidence": res["confidence"], "status": decide(res["confidence"])}]
-    found = [{"doc_type": res["doc_type"], "confidence": res["confidence"]}]
+        return [{"doc_type": NO_RL_TEXT, "confidence": res["confidence"], "status": decide(res["confidence"]), "citations": []}]
+    found = [{"doc_type": res["doc_type"], "confidence": res["confidence"], "citations": res.get("citations") or []}]
     found += res.get("also") or []
     return [{**t, "status": decide(t["confidence"])} for t in found]
 
@@ -85,7 +85,7 @@ async def aclassify_file(src, clf, file_id):
              res["confidence"], res["reason"])
     tags = tags_of(res)
     log.info("[%s] tags: %s", file_id, tags)
-    res = {k: v for k, v in res.items() if k not in ("tokens_in", "tokens_out", "also")}
+    res = {k: v for k, v in res.items() if k not in ("tokens_in", "tokens_out", "also", "citations")}
     return with_cost({**row, **res, "status": status, "tags": tags, "attempt": attempt,
                       "chunks_used": used}, tin, tout)
 

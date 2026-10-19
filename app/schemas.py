@@ -37,10 +37,17 @@ class ClassificationRequest(BaseModel):
         ]}}}
 
 
+class Citation(BaseModel):
+    text: str = Field(description="words copied exactly from the file's text that show why the tag fits")
+    chunk: int = Field(description="1-based number of the chunk (of the text we received) the quote was found in")
+
+
 class Tag(BaseModel):
     doc_type: str = Field(description="an RL name, or 'no rl class identified for this' when no RL type fits")
     confidence: float
     status: Literal["high", "medium", "low"]
+    citations: list[Citation] = Field(default_factory=list, description="up to 2 verified quotes for this tag; empty when none "
+                                      "could be verified (e.g. the 'no rl class identified for this' tag)")
 
 
 class FileResult(BaseModel):

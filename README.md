@@ -32,6 +32,12 @@ more, `MIN_CONFIDENCE`) | `medium` (above 0.60, below 0.80) | `low` (0.60 or bel
 is "no rl class identified for this". A file that could not be classified (no text received, or the LLM gave no valid answer)
 has empty `tags` and says why in `reason`. `counts[]`, `by_status` and `by_type` use the best tag; `by_status` also has `error`.
 
+Every tag also has `citations[]`: up to 2 `{text, chunk}` that show where the tag comes from. `text` is copied word for word from the file's
+text and `chunk` is the 1-based number of the chunk it was found in (the chunks you sent, or our 1200-character pieces when you send plain
+`text`). The model proposes the quotes and the service keeps only those it can find in the text, so a citation is never invented; a tag
+whose quotes cannot be verified has an empty list. Only the text the model sees (the first `FIRST_CHUNKS` chunks, up to `MAX_CHARS`
+characters) can be cited. There are no page numbers: send one chunk per page if you want chunk = page.
+
 Also `GET /health`. The endpoint is `async`: the LLM calls are non-blocking, files of a request run concurrently (`WORKERS`),
 and the call returns when all its files are done.
 
