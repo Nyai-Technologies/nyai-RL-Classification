@@ -58,6 +58,7 @@ and the call returns when all its files are done.
       errors.py       the errors the service raises on purpose
       cli.py          command line for testing: python -m app.cli --input request.json
       pulsar_worker.py  Pulsar consumer: python -m app.pulsar_worker
+      kafka_worker.py   Kafka consumer: python -m app.kafka_worker
     .env.example      the two required settings (and the Pulsar topics)
     Dockerfile        container image
     logs/             created at runtime: classify.log and cost.log (git-ignored)
@@ -89,6 +90,26 @@ The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_w
   Every line of a message carries its `correlation_id` (as `request_id`). While idle the worker logs its counters every
   `PULSAR_STATS_INTERVAL_SECONDS` (60; 0 = never), because it has no HTTP probe. The document text and the token are never logged.
 - The worker was tested with a fake consumer/producer and with the real LLM, but not against a live broker.
+
+## Kafka
+The same classification and message format as Pulsar, over Kafka: `python -m app.kafka_worker` (needs `KAFKA_INPUT_TOPIC`, `KAFKA_OUTPUT_TOPIC`,
+`KAFKA_CONSUMER_GROUP` and `OPENAI_API_KEY`; no topic names are assumed). Every `KAFKA_*` setting, with its default, is in `app/config.py`;
+names match the metadata-extraction service. Uses `confluent-kafka`.
+
+- **In / Out:** one JSON message in = the API request body + optional `correlation_id`; one message out = the API response + `correlation_id`
+  (also the message key and a header), or `{"correlation_id", "error": {"status_code", "detail"}}` for a message that cannot be classified.
+- **Connection:** `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_SECURITY_PROTOCOL` (`PLAINTEXT` | `SSL` | `SASL_PLAINTEXT` | `SASL_SSL`),
+  `KAFKA_SASL_MECHANISM` / `_USERNAME` / `_PASSWORD`, `KAFKA_SSL_CAFILE`.
+- **Offsets:** an offset is committed only after its answer is published, and only up to the oldest message still being worked on (messages
+  finish out of order). A pod that dies mid-run never loses a message; another pod may redo a few finished ones: key results by `correlation_id`.
+- **Failed publish:** the offset stays uncommitted and the partition is rewound to it after `KAFKA_NACK_REDELIVERY_DELAY_SECONDS` (60).
+- **Sizes:** requests up to `KAFKA_MAX_REQUEST_BYTES` (20 MB); a result over `KAFKA_MAX_MESSAGE_BYTES` (1 MB) is replaced by a small
+  error result (413) instead of failing to publish forever. Results are compressed with `KAFKA_COMPRESSION_TYPE` (gzip).
+- **Topics:** at start the two topics are created if missing, and `max.message.bytes` is raised if too small (never lowered; partitions are
+  left alone). `KAFKA_CREATE_TOPICS=0` switches this off; without permission a warning is logged and the topics must exist already.
+- **Scale:** pods of one consumer group split the input partitions (run at most as many pods as partitions). Per pod,
+  `KAFKA_MAX_CONCURRENT_JOBS` (4) messages run at once. SIGTERM finishes the messages in flight.
+- The worker was tested with a fake consumer/producer, not against a live broker.
 
 ## Scaling
 - **Async I/O:** one process serves many requests at once; waiting for the LLM never blocks the event loop.

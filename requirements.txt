@@ -4,3 +4,4 @@ uvicorn
 httpx
 python-dotenv
 pulsar-client
+confluent-kafka
