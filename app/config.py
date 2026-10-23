@@ -80,6 +80,33 @@ class Settings:
     PULSAR_MAX_IN_FLIGHT: int = 4                         # messages classified at the same time per worker
     PULSAR_STATS_INTERVAL_SECONDS: float = 60.0           # how often the worker logs its counters while idle (0 = never)
 
+    # ---- Kafka (python -m app.kafka_worker); names match the other Nyai/Turinton services ----
+    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"       # host:port,host:port
+    KAFKA_INPUT_TOPIC: str = ""                           # required for the worker: your topic names, nothing is assumed
+    KAFKA_OUTPUT_TOPIC: str = ""                          # required for the worker (where the results are published)
+    KAFKA_CONSUMER_GROUP: str = ""                        # required for the worker; pods of one group split the partitions
+    KAFKA_SECURITY_PROTOCOL: str = "PLAINTEXT"            # PLAINTEXT | SSL | SASL_PLAINTEXT | SASL_SSL (Azure Event Hubs: SASL_SSL)
+    KAFKA_SASL_MECHANISM: str = "PLAIN"                   # PLAIN | SCRAM-SHA-256 | SCRAM-SHA-512 (with SASL_*)
+    KAFKA_SASL_USERNAME: str = ""                         # Event Hubs: $ConnectionString
+    KAFKA_SASL_PASSWORD: str = ""                         # Event Hubs: the namespace connection string
+    KAFKA_SSL_CAFILE: str = ""                            # CA certificate file for SSL / SASL_SSL (empty = system CAs)
+    KAFKA_MAX_CONCURRENT_JOBS: int = 4                    # messages classified at the same time per worker
+    KAFKA_MAX_REQUEST_BYTES: int = 20 * 1024 * 1024       # largest request message (it carries the document text)
+    KAFKA_MAX_MESSAGE_BYTES: int = 1024 * 1024            # largest result published; a bigger one becomes a small error result
+    KAFKA_COMPRESSION_TYPE: str = "gzip"                  # gzip | none | lz4 | snappy | zstd (Event Hubs rejects zstd)
+    KAFKA_AUTO_OFFSET_RESET: str = "earliest"             # earliest | latest: where a new consumer group starts
+    KAFKA_ACKS: str = "all"                               # producer acks: all | 1 | 0
+    KAFKA_IDEMPOTENT_PRODUCER: bool = True                # no duplicate results from producer retries (needs acks=all)
+    KAFKA_MAX_POLL_INTERVAL_MS: int = 60 * 60 * 1000      # far above the default: one LLM run can take minutes
+    KAFKA_POLL_TIMEOUT_MS: int = 1000                     # how long one poll waits for a message
+    KAFKA_RECEIVE_RETRY_SECONDS: float = 2.0              # wait before polling again after a receive error
+    KAFKA_NACK_REDELIVERY_DELAY_SECONDS: float = 60.0     # a message whose answer could not be published is re-read after this
+    KAFKA_CREATE_TOPICS: bool = True                      # create the two topics at start if they do not exist (raises max.message.bytes if too small)
+    KAFKA_TOPIC_PARTITIONS: int = 3                       # for topics created at start (0 or less = broker default)
+    KAFKA_TOPIC_REPLICATION_FACTOR: int = -1              # for topics created at start (0 or less = broker default)
+    KAFKA_ENVELOPE_HEADROOM_BYTES: int = 64 * 1024        # room for the record envelope on top of the size limits
+    KAFKA_STATS_INTERVAL_SECONDS: float = 60.0            # how often the worker logs its counters while idle (0 = never)
+
     # ---- logging (containers/OpenShift: LOG_FORMAT=json LOG_FILE=none COST_LOG_FILE=none) ----
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "text"                     # "json" or "text"
@@ -123,6 +150,31 @@ class Settings:
             PULSAR_SUBSCRIPTION=_str("PULSAR_SUBSCRIPTION").strip(),
             PULSAR_MAX_IN_FLIGHT=_int("PULSAR_MAX_IN_FLIGHT", 4),
             PULSAR_STATS_INTERVAL_SECONDS=_float("PULSAR_STATS_INTERVAL_SECONDS", 60),
+            KAFKA_BOOTSTRAP_SERVERS=_str("KAFKA_BOOTSTRAP_SERVERS", cls.KAFKA_BOOTSTRAP_SERVERS).strip(),
+            KAFKA_INPUT_TOPIC=_str("KAFKA_INPUT_TOPIC").strip(),
+            KAFKA_OUTPUT_TOPIC=_str("KAFKA_OUTPUT_TOPIC").strip(),
+            KAFKA_CONSUMER_GROUP=_str("KAFKA_CONSUMER_GROUP").strip(),
+            KAFKA_SECURITY_PROTOCOL=_str("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT").strip().upper(),
+            KAFKA_SASL_MECHANISM=_str("KAFKA_SASL_MECHANISM", "PLAIN").strip().upper(),
+            KAFKA_SASL_USERNAME=_str("KAFKA_SASL_USERNAME"),
+            KAFKA_SASL_PASSWORD=_str("KAFKA_SASL_PASSWORD"),
+            KAFKA_SSL_CAFILE=_str("KAFKA_SSL_CAFILE").strip(),
+            KAFKA_MAX_CONCURRENT_JOBS=_int("KAFKA_MAX_CONCURRENT_JOBS", 4),
+            KAFKA_MAX_REQUEST_BYTES=_int("KAFKA_MAX_REQUEST_BYTES", cls.KAFKA_MAX_REQUEST_BYTES),
+            KAFKA_MAX_MESSAGE_BYTES=_int("KAFKA_MAX_MESSAGE_BYTES", cls.KAFKA_MAX_MESSAGE_BYTES),
+            KAFKA_COMPRESSION_TYPE=_str("KAFKA_COMPRESSION_TYPE", "gzip").strip().lower(),
+            KAFKA_AUTO_OFFSET_RESET=_str("KAFKA_AUTO_OFFSET_RESET", "earliest").strip().lower(),
+            KAFKA_ACKS=_str("KAFKA_ACKS", "all").strip().lower(),
+            KAFKA_IDEMPOTENT_PRODUCER=_flag("KAFKA_IDEMPOTENT_PRODUCER", True),
+            KAFKA_MAX_POLL_INTERVAL_MS=_int("KAFKA_MAX_POLL_INTERVAL_MS", cls.KAFKA_MAX_POLL_INTERVAL_MS),
+            KAFKA_POLL_TIMEOUT_MS=_int("KAFKA_POLL_TIMEOUT_MS", 1000),
+            KAFKA_RECEIVE_RETRY_SECONDS=_float("KAFKA_RECEIVE_RETRY_SECONDS", 2),
+            KAFKA_NACK_REDELIVERY_DELAY_SECONDS=_float("KAFKA_NACK_REDELIVERY_DELAY_SECONDS", 60),
+            KAFKA_CREATE_TOPICS=_flag("KAFKA_CREATE_TOPICS", True),
+            KAFKA_TOPIC_PARTITIONS=_int("KAFKA_TOPIC_PARTITIONS", 3),
+            KAFKA_TOPIC_REPLICATION_FACTOR=_int("KAFKA_TOPIC_REPLICATION_FACTOR", -1),
+            KAFKA_ENVELOPE_HEADROOM_BYTES=_int("KAFKA_ENVELOPE_HEADROOM_BYTES", cls.KAFKA_ENVELOPE_HEADROOM_BYTES),
+            KAFKA_STATS_INTERVAL_SECONDS=_float("KAFKA_STATS_INTERVAL_SECONDS", 60),
             LOG_LEVEL=_str("LOG_LEVEL", "INFO").upper(),
             LOG_FORMAT=fmt,
             LOG_FILE=_path_or_none("LOG_FILE", "logs/classify.log"),

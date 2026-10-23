@@ -15,3 +15,4 @@ EXPOSE 8080
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY} --no-access-log --timeout-graceful-shutdown 60"]
 # Pulsar worker from the same image (a second Deployment): override the command with
 #   python -m app.pulsar_worker
+# Kafka worker: the same, with `python -m app.kafka_worker`
