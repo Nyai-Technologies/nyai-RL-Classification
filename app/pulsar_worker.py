@@ -183,8 +183,9 @@ def connect():
 
 async def main():
     setup_logging()
-    if not settings.LLM_API_KEY:
-        raise SystemExit("OPENAI_API_KEY is not set")
+    missing = settings.llm_missing()
+    if missing:
+        raise SystemExit(missing)
     missing = [n for n in ("PULSAR_INPUT_TOPIC", "PULSAR_RESULT_TOPIC", "PULSAR_SUBSCRIPTION") if not getattr(settings, n)]
     if missing:                                      # no topic names are assumed: they come from your Pulsar setup
         log.error("the Pulsar worker needs these env variables: %s", ", ".join(missing))
