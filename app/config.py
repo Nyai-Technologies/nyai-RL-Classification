@@ -36,8 +36,11 @@ def _float_or_none(name):
 
 @dataclass
 class Settings:
-    # ---- LLM (OpenAI) ----
-    LLM_API_KEY: str = ""
+    # ---- LLM: OpenAI, AWS Bedrock, or OpenAI with Bedrock as the fallback (see provider()) ----
+    LLM_PROVIDER: str = ""                       # "" = from the keys (provider()); "openai" | "bedrock" forces one
+    LLM_API_KEY: str = ""                        # an OpenAI key, or a Bedrock API key (ABSK...) = use Bedrock
+    BEDROCK_MODEL_ID: str = ""                   # "" = whichever model the key can use (app/bedrock.py)
+    LLM_MAX_TOKENS: int = 2048                   # Bedrock only: maxTokens of one reply (Converse requires a cap)
     LLM_MODEL: str = "luna"
     LLM_TEMPERATURE: float | None = 0.0          # None = do not send (model default); auto-dropped if the model rejects it
     LLM_TIMEOUT: float = 60.0                    # seconds per LLM call
@@ -92,8 +95,15 @@ class Settings:
         temp = _str("LLM_TEMPERATURE", "0").strip().lower()
         usd_inr = _str("USD_INR", "auto").strip().lower()
         fmt = _str("LOG_FORMAT", "text").strip().lower()
+        provider = _str("LLM_PROVIDER").strip().lower()
+        if provider not in ("", "openai", "bedrock"):
+            raise SystemExit(f"LLM_PROVIDER must be 'openai' or 'bedrock', got {provider!r}")
+        bedrock = provider == "bedrock"
         return cls(
+            LLM_PROVIDER=provider,
             LLM_API_KEY=_str("LLM_API_KEY") or _str("OPENAI_API_KEY"),
+            BEDROCK_MODEL_ID=_str("BEDROCK_MODEL_ID") or (_str("LLM_MODEL") if bedrock else ""),
+            LLM_MAX_TOKENS=_int("LLM_MAX_TOKENS", 2048),
             LLM_MODEL=_str("LLM_MODEL") or _str("OPENAI_MODEL") or "luna",
             LLM_TEMPERATURE=None if temp in ("", "none", "default") else float(temp),
             LLM_TIMEOUT=_float("LLM_TIMEOUT", 60),
@@ -129,6 +139,32 @@ class Settings:
             COST_LOG_FILE=_path_or_none("COST_LOG_FILE", "logs/cost.log"),
             COST_LOG_TO_STDOUT=_flag("COST_LOG_TO_STDOUT", fmt == "json"),
         )
+
+    def openai_key(self):
+        """LLM_API_KEY when it is an OpenAI key (not a Bedrock one)."""
+        from app import bedrock
+        return self.LLM_API_KEY if self.LLM_API_KEY and not bedrock.is_bedrock_key(self.LLM_API_KEY) else ""
+
+    def provider(self):
+        """LLM_PROVIDER when set; else OpenAI while there is an OpenAI key (Bedrock then only as the fallback, see
+        bedrock_fallback()), and Bedrock when the only key is a Bedrock one (LLM_API_KEY / OPENAI_API_KEY = ABSK...,
+        or AWS_BEARER_TOKEN_BEDROCK)."""
+        from app import bedrock
+        if self.LLM_PROVIDER:
+            return self.LLM_PROVIDER
+        return "bedrock" if not self.openai_key() and bedrock.available() else "openai"
+
+    def bedrock_fallback(self):
+        """An OpenAI call that fails is retried on Bedrock: a Bedrock key is set and OpenAI is not forced."""
+        from app import bedrock
+        return self.LLM_PROVIDER != "openai" and bedrock.available()
+
+    def llm_missing(self):
+        """What still has to be set before this instance can call the LLM; None when it can. (Bedrock credentials,
+        region and model are only checked by the first call.)"""
+        if self.provider() == "bedrock" or self.openai_key() or self.bedrock_fallback():
+            return None
+        return "OPENAI_API_KEY is not set (an OpenAI key, or a Bedrock API key)"
 
 
 settings = Settings.from_env()
