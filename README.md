@@ -66,6 +66,16 @@ and the call returns when all its files are done.
 All settings are environment variables with defaults; only `OPENAI_API_KEY` and `OPENAI_MODEL` are required (the Pulsar topics too,
 if you run the worker). Every setting, with its default and a comment, is listed in `app/config.py`.
 
+### AWS Bedrock instead of OpenAI
+Set `LLM_PROVIDER=bedrock`, `BEDROCK_MODEL_ID` (a model or inference-profile id enabled in the region, e.g.
+`us.anthropic.claude-…`; `LLM_MODEL` also works) and `BEDROCK_REGION` (or `AWS_REGION`). Credentials: a Bedrock API key
+(`ABSK…`) in `AWS_BEARER_TOKEN_BEDROCK`, or the standard AWS chain (IAM role, access keys). `OPENAI_API_KEY` is not used;
+a Bedrock key put there is rejected by OpenAI with 401. Calls go through the Converse API with the same prompts, the
+same backoff on throttling (`MAX_BACKOFF_TRIES`) and transient errors (`TRANSIENT_RETRIES`), and stop the run on an
+access/model/credentials problem. Bedrock has no JSON mode, so `LLM_JSON_MODE` is ignored there (the prompt already asks
+for JSON only). `LLM_MAX_TOKENS` (default 2048) caps one reply. If the model id is not in the auto price list, pin
+`LLM_PRICE_IN_PER_M` / `LLM_PRICE_OUT_PER_M` for cost reporting.
+
 ## Pulsar
 The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_worker` (needs `PULSAR_SERVICE_URL`, `PULSAR_INPUT_TOPIC`,
 `PULSAR_RESULT_TOPIC`, `PULSAR_SUBSCRIPTION` and `OPENAI_API_KEY`; no topic names are assumed, the worker stops with a clear message if one is missing).

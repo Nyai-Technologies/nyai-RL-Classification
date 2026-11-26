@@ -20,14 +20,49 @@ _clients = weakref.WeakKeyDictionary()
 _limiters = weakref.WeakKeyDictionary()
 
 
+class BedrockClient:
+    """A boto3 bedrock-runtime client (thread-safe, blocking) used from the event loop through a worker thread.
+    Credentials: a Bedrock API key in AWS_BEARER_TOKEN_BEDROCK, or the standard AWS chain (IAM role, access keys).
+    botocore's own retries are off: _call_bedrock backs off the same way the OpenAI path does."""
+
+    def __init__(self, runtime=None):
+        if runtime is None:
+            import boto3
+            from botocore.config import Config
+            runtime = boto3.client("bedrock-runtime", region_name=settings.BEDROCK_REGION,
+                                   config=Config(read_timeout=settings.LLM_TIMEOUT, connect_timeout=10,
+                                                 retries={"max_attempts": 1, "mode": "standard"}))
+        self.runtime = runtime
+
+    async def converse(self, **kwargs):
+        return await asyncio.to_thread(self.runtime.converse, **kwargs)
+
+    async def close(self):
+        close = getattr(self.runtime, "close", None)
+        if close:
+            close()
+
+
 def shared_client():
-    from openai import AsyncOpenAI
     loop = asyncio.get_running_loop()
     if loop not in _clients:
-        if not settings.LLM_API_KEY:
-            raise RuntimeError("set OPENAI_API_KEY (or LLM_API_KEY)")
-        _clients[loop] = AsyncOpenAI(api_key=settings.LLM_API_KEY, max_retries=0, timeout=settings.LLM_TIMEOUT)
+        missing = settings.llm_missing()
+        if missing:
+            raise RuntimeError(missing)
+        if settings.LLM_PROVIDER == "bedrock":
+            _clients[loop] = BedrockClient()
+        else:
+            from openai import AsyncOpenAI
+            _clients[loop] = AsyncOpenAI(api_key=settings.LLM_API_KEY, max_retries=0, timeout=settings.LLM_TIMEOUT)
     return _clients[loop]
+
+
+class _TokenUsage:
+    """Bedrock's token counts in the shape Usage.add reads (OpenAI's usage object)."""
+
+    def __init__(self, prompt_tokens, completion_tokens):
+        self.prompt_tokens = prompt_tokens or 0
+        self.completion_tokens = completion_tokens or 0
 
 
 def llm_limiter():
@@ -159,8 +194,93 @@ class LLMClassifier:
         self.fatal = None                # set when a config problem (bad key / unknown model) stops the run
         log.info("LLM client ready: model=%s categories=%d", settings.LLM_MODEL, len(rl))
 
+    def _record(self, usage, file_name, t0, prompt_chars):
+        p, c, usd = self.usage.add(usage)
+        cost_log.info("CALL file=%s model=%s tokens_in=%d tokens_out=%d usd=%.6f inr=%.4f",
+                      file_name, settings.LLM_MODEL, p, c, usd, usd * usd_inr(),
+                      extra={"event": "llm_call", "file": file_name, "model": settings.LLM_MODEL, "tokens_in": p,
+                             "tokens_out": c, "cost_usd": round(usd, 6), "cost_inr": round(usd * usd_inr(), 4)})
+        log.debug("LLM call ok in %.1fs (prompt_chars=%d, tokens in/out=%d/%d, cost=$%.5f / Rs %.4f, json_mode=%s)",
+                  time.time() - t0, prompt_chars, p, c, usd, usd * usd_inr(), self._json_mode)
+        return p, c
+
+    async def _call_bedrock(self, user_prompt, file_name="?"):
+        """One Bedrock Converse call with the same backoff rules as the OpenAI path. Bedrock has no JSON mode: the
+        system prompt already asks for JSON only and parse_llm_json takes the object out of the reply."""
+        from botocore.exceptions import BotoCoreError, ClientError, ConnectionError as BotoConnectionError, \
+            ReadTimeoutError
+        transient = 0
+        for attempt in range(settings.MAX_BACKOFF_TRIES):
+            inference = {"maxTokens": settings.LLM_MAX_TOKENS}
+            if self._send_temp:
+                inference["temperature"] = settings.LLM_TEMPERATURE
+            kwargs = dict(modelId=settings.LLM_MODEL, system=[{"text": system_prompt()}],
+                          messages=[{"role": "user", "content": [{"text": user_prompt}]}],
+                          inferenceConfig=inference)
+            try:
+                t0 = time.time()
+                async with llm_limiter():
+                    resp = await self.client.converse(**kwargs)
+                u = resp.get("usage") or {}
+                p, c = self._record(_TokenUsage(u.get("inputTokens"), u.get("outputTokens")), file_name, t0,
+                                    len(user_prompt))
+                blocks = ((resp.get("output") or {}).get("message") or {}).get("content") or []
+                return "".join(b.get("text", "") for b in blocks if isinstance(b, dict)), p, c
+            except ClientError as e:
+                err = e.response.get("Error", {})
+                code, msg = err.get("Code", ""), err.get("Message", str(e))
+                if code in ("ThrottlingException", "ServiceQuotaExceededException", "TooManyRequestsException"):
+                    if attempt == settings.MAX_BACKOFF_TRIES - 1:
+                        log.error("LLM throttled (%s), giving up after %d tries: %s", code, settings.MAX_BACKOFF_TRIES, msg)
+                        raise LLMError(f"throttled after retries ({code}: {msg})")
+                    wait = min(2 ** attempt, 30) + random.random()
+                    log.warning("LLM throttled %s (try %d/%d), sleeping %.1fs", code, attempt + 1,
+                                settings.MAX_BACKOFF_TRIES, wait)
+                    await _sleep(wait)
+                elif code in ("ModelTimeoutException", "ServiceUnavailableException", "InternalServerException",
+                              "ModelNotReadyException", "ModelStreamErrorException"):
+                    transient += 1
+                    if transient > settings.TRANSIENT_RETRIES:
+                        log.error("LLM unavailable after %d retries (%s): %s", settings.TRANSIENT_RETRIES, code, msg)
+                        raise LLMError(f"LLM unavailable ({code}) after {settings.TRANSIENT_RETRIES} retries")
+                    wait = min(2 ** transient, 20) + random.random()
+                    log.warning("LLM transient error %s (retry %d/%d), sleeping %.1fs", code, transient,
+                                settings.TRANSIENT_RETRIES, wait)
+                    await _sleep(wait)
+                elif code == "ValidationException" and "temperature" in msg.lower() and "temperature" in inference:
+                    log.warning("model rejects temperature=%s; using its default (results may vary slightly run to run)",
+                                settings.LLM_TEMPERATURE)
+                    self._send_temp = False
+                elif code in ("AccessDeniedException", "UnrecognizedClientException", "ResourceNotFoundException",
+                              "ExpiredTokenException", "InvalidSignatureException") or (
+                        code == "ValidationException" and "model identifier" in msg.lower()):
+                    fatal = f"{code}: {msg}"
+                    log.error("LLM configuration problem, the run will be stopped: %s", fatal)
+                    self.fatal = fatal
+                    raise LLMError(fatal, fatal=True)
+                else:
+                    log.error("LLM call failed (%s): %s", code, msg)
+                    raise LLMError(f"{code}: {msg}")
+            except (BotoConnectionError, ReadTimeoutError) as e:
+                transient += 1
+                if transient > settings.TRANSIENT_RETRIES:
+                    log.error("LLM unavailable after %d retries (%s): %s", settings.TRANSIENT_RETRIES, type(e).__name__, e)
+                    raise LLMError(f"LLM unavailable ({type(e).__name__}) after {settings.TRANSIENT_RETRIES} retries")
+                wait = min(2 ** transient, 20) + random.random()
+                log.warning("LLM transient error %s (retry %d/%d), sleeping %.1fs", type(e).__name__, transient,
+                            settings.TRANSIENT_RETRIES, wait)
+                await _sleep(wait)
+            except BotoCoreError as e:               # no credentials, bad region, ...: every file would fail the same way
+                fatal = f"{type(e).__name__}: {e}"
+                log.error("LLM configuration problem, the run will be stopped: %s", fatal)
+                self.fatal = fatal
+                raise LLMError(fatal, fatal=True)
+        raise LLMError("no response")
+
     async def _call(self, user_prompt, file_name="?"):
         """One chat call (non-blocking) with backoff on 429 / transient errors."""
+        if isinstance(self.client, BedrockClient):
+            return await self._call_bedrock(user_prompt, file_name)
         import openai
         transient = 0
         for attempt in range(settings.MAX_BACKOFF_TRIES):
@@ -177,13 +297,7 @@ class LLMClassifier:
                     resp = self.client.chat.completions.create(**kwargs)
                     if inspect.isawaitable(resp):    # (a plain object from a test double needs no await)
                         resp = await resp
-                p, c, usd = self.usage.add(getattr(resp, "usage", None))
-                cost_log.info("CALL file=%s model=%s tokens_in=%d tokens_out=%d usd=%.6f inr=%.4f",
-                              file_name, settings.LLM_MODEL, p, c, usd, usd * usd_inr(),
-                              extra={"event": "llm_call", "file": file_name, "model": settings.LLM_MODEL, "tokens_in": p,
-                                     "tokens_out": c, "cost_usd": round(usd, 6), "cost_inr": round(usd * usd_inr(), 4)})
-                log.debug("LLM call ok in %.1fs (prompt_chars=%d, tokens in/out=%d/%d, cost=$%.5f / Rs %.4f, json_mode=%s)",
-                          time.time() - t0, len(user_prompt), p, c, usd, usd * usd_inr(), self._json_mode)
+                p, c = self._record(getattr(resp, "usage", None), file_name, t0, len(user_prompt))
                 return resp.choices[0].message.content or "", p, c
             except openai.RateLimitError as e:
                 if attempt == settings.MAX_BACKOFF_TRIES - 1:

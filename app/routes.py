@@ -27,9 +27,10 @@ async def rl_classification(req: ClassificationRequest):
 @router.get("/ready", tags=["ops"])
 async def ready():
     """Readiness probe: can this instance classify? (no LLM call is made)"""
-    if not settings.LLM_API_KEY:
-        raise HTTPException(503, "OPENAI_API_KEY is not set")
-    return {"ready": True, "model": settings.LLM_MODEL}
+    missing = settings.llm_missing()
+    if missing:
+        raise HTTPException(503, missing)
+    return {"ready": True, "provider": settings.LLM_PROVIDER, "model": settings.LLM_MODEL}
 
 
 @router.get("/health", tags=["ops"])

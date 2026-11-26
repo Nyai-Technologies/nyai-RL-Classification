@@ -21,12 +21,12 @@ from app.logs import request_id_var, setup_logging
 
 @asynccontextmanager
 async def lifespan(app):
-    log.info("service starting: model=%s api_key_set=%s log_format=%s concurrency(per request/process)=%d/%d min_confidence=%.2f",
-             settings.LLM_MODEL, bool(settings.LLM_API_KEY), settings.LOG_FORMAT, settings.WORKERS,
+    log.info("service starting: provider=%s model=%s llm_configured=%s log_format=%s concurrency(per request/process)=%d/%d min_confidence=%.2f",
+             settings.LLM_PROVIDER, settings.LLM_MODEL, settings.llm_missing() is None, settings.LOG_FORMAT, settings.WORKERS,
              settings.MAX_LLM_CONCURRENCY,
              settings.MIN_CONFIDENCE)
-    if not settings.LLM_API_KEY:
-        log.error("OPENAI_API_KEY is not set: /rl-classification will answer 503 until it is configured")
+    if settings.llm_missing():
+        log.error("%s: /rl-classification will answer 503 until it is configured", settings.llm_missing())
     asyncio.get_running_loop().run_in_executor(None, pricing.warm_caches)      # price + FX lookup in the background
     yield
     log.info("service stopping: closing LLM connections")
