@@ -30,7 +30,8 @@ async def ready():
     missing = settings.llm_missing()
     if missing:
         raise HTTPException(503, missing)
-    return {"ready": True, "provider": settings.LLM_PROVIDER, "model": settings.LLM_MODEL}
+    return {"ready": True, "provider": settings.provider(), "bedrock_fallback": settings.bedrock_fallback(),
+            "model": settings.LLM_MODEL if settings.provider() == "openai" else (settings.BEDROCK_MODEL_ID or "auto")}
 
 
 @router.get("/health", tags=["ops"])

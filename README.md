@@ -66,15 +66,23 @@ and the call returns when all its files are done.
 All settings are environment variables with defaults; only `OPENAI_API_KEY` and `OPENAI_MODEL` are required (the Pulsar topics too,
 if you run the worker). Every setting, with its default and a comment, is listed in `app/config.py`.
 
-### AWS Bedrock instead of OpenAI
-Set `LLM_PROVIDER=bedrock`, `BEDROCK_MODEL_ID` (a model or inference-profile id enabled in the region, e.g.
-`us.anthropic.claude-…`; `LLM_MODEL` also works) and `BEDROCK_REGION` (or `AWS_REGION`). Credentials: a Bedrock API key
-(`ABSK…`) in `AWS_BEARER_TOKEN_BEDROCK`, or the standard AWS chain (IAM role, access keys). `OPENAI_API_KEY` is not used;
-a Bedrock key put there is rejected by OpenAI with 401. Calls go through the Converse API with the same prompts, the
-same backoff on throttling (`MAX_BACKOFF_TRIES`) and transient errors (`TRANSIENT_RETRIES`), and stop the run on an
-access/model/credentials problem. Bedrock has no JSON mode, so `LLM_JSON_MODE` is ignored there (the prompt already asks
-for JSON only). `LLM_MAX_TOKENS` (default 2048) caps one reply. If the model id is not in the auto price list, pin
-`LLM_PRICE_IN_PER_M` / `LLM_PRICE_OUT_PER_M` for cost reporting.
+### OpenAI, AWS Bedrock, or both
+Nothing beyond the key has to be configured: the service uses whatever is set up.
+- `OPENAI_API_KEY` (or `LLM_API_KEY`) is an OpenAI key: OpenAI is used. If an OpenAI call fails and a Bedrock key is
+  also set (`AWS_BEARER_TOKEN_BEDROCK`), the call is retried on Bedrock; after a bad key or "no credits" the rest of the
+  run goes straight to Bedrock. "No credits" is no longer retried as a rate limit.
+- The only key is a Bedrock API key (`ABSK...`), in `OPENAI_API_KEY`/`LLM_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK`:
+  Bedrock is used.
+- `LLM_PROVIDER=openai|bedrock` forces one (with `openai` there is no fallback).
+
+On Bedrock the model is whichever one the key can use: the account's inference profiles and on-demand text models in
+the region are listed (a built-in list if listing isn't allowed), tried best first (Claude, then Nova, Llama,
+Mistral...), and the first that answers is used from then on. The region is `BEDROCK_REGION` / `AWS_REGION`, else the
+one inside a short-term key, else `us-east-1`. Optional overrides: `BEDROCK_MODEL_ID`, `BEDROCK_REGION`,
+`LLM_MAX_TOKENS` (2048, one reply). Bedrock goes through the Converse API with the same prompts and the same backoff on
+throttling (`MAX_BACKOFF_TRIES`) and transient errors (`TRANSIENT_RETRIES`); `LLM_JSON_MODE` doesn't apply there (the
+prompt asks for JSON only). Pin `LLM_PRICE_IN_PER_M` / `LLM_PRICE_OUT_PER_M` if the Bedrock model isn't in the auto
+price list.
 
 ## Pulsar
 The same classification, fed by a topic instead of HTTP: `python -m app.pulsar_worker` (needs `PULSAR_SERVICE_URL`, `PULSAR_INPUT_TOPIC`,

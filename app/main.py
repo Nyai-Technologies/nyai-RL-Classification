@@ -22,7 +22,7 @@ from app.logs import request_id_var, setup_logging
 @asynccontextmanager
 async def lifespan(app):
     log.info("service starting: provider=%s model=%s llm_configured=%s log_format=%s concurrency(per request/process)=%d/%d min_confidence=%.2f",
-             settings.LLM_PROVIDER, settings.LLM_MODEL, settings.llm_missing() is None, settings.LOG_FORMAT, settings.WORKERS,
+             settings.provider(), settings.LLM_MODEL if settings.provider() == "openai" else (settings.BEDROCK_MODEL_ID or "auto"), settings.llm_missing() is None, settings.LOG_FORMAT, settings.WORKERS,
              settings.MAX_LLM_CONCURRENCY,
              settings.MIN_CONFIDENCE)
     if settings.llm_missing():

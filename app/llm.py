@@ -8,6 +8,7 @@ import re
 import time
 import weakref
 
+from app import bedrock
 from app.config import settings
 from app.errors import LLMError
 from app.logs import cost_log, log
@@ -22,17 +23,11 @@ _limiters = weakref.WeakKeyDictionary()
 
 class BedrockClient:
     """A boto3 bedrock-runtime client (thread-safe, blocking) used from the event loop through a worker thread.
-    Credentials: a Bedrock API key in AWS_BEARER_TOKEN_BEDROCK, or the standard AWS chain (IAM role, access keys).
-    botocore's own retries are off: _call_bedrock backs off the same way the OpenAI path does."""
+    Key, region and model come from app/bedrock.py. botocore's own retries are off: _call_bedrock backs off the same
+    way the OpenAI path does."""
 
     def __init__(self, runtime=None):
-        if runtime is None:
-            import boto3
-            from botocore.config import Config
-            runtime = boto3.client("bedrock-runtime", region_name=settings.BEDROCK_REGION,
-                                   config=Config(read_timeout=settings.LLM_TIMEOUT, connect_timeout=10,
-                                                 retries={"max_attempts": 1, "mode": "standard"}))
-        self.runtime = runtime
+        self.runtime = runtime or bedrock.client("bedrock-runtime", int(settings.LLM_TIMEOUT), max_attempts=1)
 
     async def converse(self, **kwargs):
         return await asyncio.to_thread(self.runtime.converse, **kwargs)
@@ -49,11 +44,12 @@ def shared_client():
         missing = settings.llm_missing()
         if missing:
             raise RuntimeError(missing)
-        if settings.LLM_PROVIDER == "bedrock":
+        if settings.provider() == "bedrock":
             _clients[loop] = BedrockClient()
         else:
             from openai import AsyncOpenAI
-            _clients[loop] = AsyncOpenAI(api_key=settings.LLM_API_KEY, max_retries=0, timeout=settings.LLM_TIMEOUT)
+            _clients[loop] = AsyncOpenAI(api_key=settings.openai_key() or "unset", max_retries=0,
+                                         timeout=settings.LLM_TIMEOUT)
     return _clients[loop]
 
 
@@ -192,38 +188,50 @@ class LLMClassifier:
         self._json_mode = settings.LLM_JSON_MODE
         self._send_temp = settings.LLM_TEMPERATURE is not None
         self.fatal = None                # set when a config problem (bad key / unknown model) stops the run
+        self._bedrock = None             # Bedrock client of the fallback, made on the first OpenAI failure
+        self._openai_down = False        # OpenAI failed for good in this run (bad key, no credits): go to Bedrock
         log.info("LLM client ready: model=%s categories=%d", settings.LLM_MODEL, len(rl))
 
-    def _record(self, usage, file_name, t0, prompt_chars):
+    def _record(self, usage, file_name, t0, prompt_chars, model=None):
+        model = model or settings.LLM_MODEL
         p, c, usd = self.usage.add(usage)
         cost_log.info("CALL file=%s model=%s tokens_in=%d tokens_out=%d usd=%.6f inr=%.4f",
-                      file_name, settings.LLM_MODEL, p, c, usd, usd * usd_inr(),
-                      extra={"event": "llm_call", "file": file_name, "model": settings.LLM_MODEL, "tokens_in": p,
+                      file_name, model, p, c, usd, usd * usd_inr(),
+                      extra={"event": "llm_call", "file": file_name, "model": model, "tokens_in": p,
                              "tokens_out": c, "cost_usd": round(usd, 6), "cost_inr": round(usd * usd_inr(), 4)})
         log.debug("LLM call ok in %.1fs (prompt_chars=%d, tokens in/out=%d/%d, cost=$%.5f / Rs %.4f, json_mode=%s)",
                   time.time() - t0, prompt_chars, p, c, usd, usd * usd_inr(), self._json_mode)
         return p, c
 
-    async def _call_bedrock(self, user_prompt, file_name="?"):
+    async def _call_bedrock(self, user_prompt, file_name="?", client=None):
         """One Bedrock Converse call with the same backoff rules as the OpenAI path. Bedrock has no JSON mode: the
-        system prompt already asks for JSON only and parse_llm_json takes the object out of the reply."""
+        system prompt already asks for JSON only and parse_llm_json takes the object out of the reply.
+        Model: BEDROCK_MODEL_ID, else the remembered working one, else the models the key can use in turn."""
         from botocore.exceptions import BotoCoreError, ClientError, ConnectionError as BotoConnectionError, \
             ReadTimeoutError
-        transient = 0
-        for attempt in range(settings.MAX_BACKOFF_TRIES):
+        client = client or self.client
+        models = [settings.BEDROCK_MODEL_ID] if settings.BEDROCK_MODEL_ID else await asyncio.to_thread(bedrock.order)
+        transient, attempt = 0, 0
+        while attempt < settings.MAX_BACKOFF_TRIES:
+            if not models:
+                raise LLMError("no Bedrock model to try", fatal=True)
+            model = models[0]
             inference = {"maxTokens": settings.LLM_MAX_TOKENS}
             if self._send_temp:
                 inference["temperature"] = settings.LLM_TEMPERATURE
-            kwargs = dict(modelId=settings.LLM_MODEL, system=[{"text": system_prompt()}],
+            kwargs = dict(modelId=model, system=[{"text": system_prompt()}],
                           messages=[{"role": "user", "content": [{"text": user_prompt}]}],
                           inferenceConfig=inference)
+            attempt += 1
             try:
                 t0 = time.time()
                 async with llm_limiter():
-                    resp = await self.client.converse(**kwargs)
+                    resp = await client.converse(**kwargs)
+                if not settings.BEDROCK_MODEL_ID:
+                    bedrock.remember(model)
                 u = resp.get("usage") or {}
                 p, c = self._record(_TokenUsage(u.get("inputTokens"), u.get("outputTokens")), file_name, t0,
-                                    len(user_prompt))
+                                    len(user_prompt), model)
                 blocks = ((resp.get("output") or {}).get("message") or {}).get("content") or []
                 return "".join(b.get("text", "") for b in blocks if isinstance(b, dict)), p, c
             except ClientError as e:
@@ -251,6 +259,12 @@ class LLMClassifier:
                     log.warning("model rejects temperature=%s; using its default (results may vary slightly run to run)",
                                 settings.LLM_TEMPERATURE)
                     self._send_temp = False
+                    attempt -= 1
+                elif bedrock.model_unusable(code) and len(models) > 1:
+                    log.warning("Bedrock model %s not usable (%s: %s), trying the next one", model, code, msg)
+                    bedrock.forget(model)
+                    models.pop(0)
+                    attempt -= 1             # not a retry of the same call: no backoff, no try used up
                 elif code in ("AccessDeniedException", "UnrecognizedClientException", "ResourceNotFoundException",
                               "ExpiredTokenException", "InvalidSignatureException") or (
                         code == "ValidationException" and "model identifier" in msg.lower()):
@@ -278,9 +292,27 @@ class LLMClassifier:
         raise LLMError("no response")
 
     async def _call(self, user_prompt, file_name="?"):
-        """One chat call (non-blocking) with backoff on 429 / transient errors."""
+        """One LLM call: Bedrock when that is the provider; otherwise OpenAI, retried on Bedrock when it fails and a
+        Bedrock key is set (after a bad key / no credits, the rest of the run goes straight to Bedrock)."""
         if isinstance(self.client, BedrockClient):
             return await self._call_bedrock(user_prompt, file_name)
+        if self._openai_down:
+            return await self._call_bedrock(user_prompt, file_name, self._bedrock)
+        try:
+            return await self._call_openai(user_prompt, file_name)
+        except LLMError as e:
+            if not settings.bedrock_fallback():
+                raise
+            log.warning("OpenAI failed (%s) - falling back to Bedrock for %s", e, file_name)
+            if e.fatal:
+                self._openai_down = True
+                self.fatal = None
+            if self._bedrock is None:
+                self._bedrock = BedrockClient()
+            return await self._call_bedrock(user_prompt, file_name, self._bedrock)
+
+    async def _call_openai(self, user_prompt, file_name="?"):
+        """One chat call (non-blocking) with backoff on 429 / transient errors."""
         import openai
         transient = 0
         for attempt in range(settings.MAX_BACKOFF_TRIES):
@@ -300,6 +332,11 @@ class LLMClassifier:
                 p, c = self._record(getattr(resp, "usage", None), file_name, t0, len(user_prompt))
                 return resp.choices[0].message.content or "", p, c
             except openai.RateLimitError as e:
+                if "insufficient_quota" in str(e) or "no credits" in str(e).lower():   # not a rate limit: never clears
+                    msg = f"OpenAI account has no credits: {getattr(e, 'message', e)}"
+                    log.error("LLM configuration problem, the run will be stopped: %s", msg)
+                    self.fatal = msg
+                    raise LLMError(msg, fatal=True)
                 if attempt == settings.MAX_BACKOFF_TRIES - 1:
                     log.error("LLM rate limited, giving up after %d tries", settings.MAX_BACKOFF_TRIES)
                     raise LLMError("rate limited after retries")
